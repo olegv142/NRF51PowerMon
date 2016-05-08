@@ -10,96 +10,45 @@
  *
  */
 
-/** @file
- * @defgroup rtc_example_main main.c
- * @{
- * @ingroup rtc_example
- * @brief Real Time Counter Example Application main file.
- *
- * This file contains the source code for a sample application using the Real Time Counter (RTC).
- * 
- */
 
 #include "nrf.h"
 #include "nrf_gpio.h"
+#include "nrf_delay.h"
+#include "nrf_drv_spi.h"
 #include "nrf_drv_config.h"
-#include "nrf_drv_timer.h"
-#include "nrf_drv_ppi.h"
-#include "nrf_adc.h"
-#include "clock.h"
-#include "boards.h"
-#include "app_error.h"
+#include "ads1220.h"
 #include "bug.h"
-#include "app_util_platform.h"
 
 #include <stdint.h>
 #include <stdbool.h>
 
-#define CONV_PERIOD 80
+#define DATA_RDY_PIN 30
 
-static const nrf_drv_timer_t g_timer = NRF_DRV_TIMER_INSTANCE(0);
-static nrf_ppi_channel_t g_ppi_channel1;
-
-unsigned g_adc_res[16];
-unsigned g_adc_res_i;
-
-
-/**
- * @brief ADC initialization.
- */
-static void adc_initialize(void)
+static inline int is_data_rdy(void)
 {
-    const nrf_adc_config_t nrf_adc_config = { NRF_ADC_CONFIG_RES_10BIT,
-        NRF_ADC_CONFIG_SCALING_INPUT_ONE_THIRD,
-        NRF_ADC_CONFIG_REF_VBG
-    };
-    // Initialize and configure ADC
-    nrf_adc_configure((nrf_adc_config_t *)&nrf_adc_config);
-    nrf_adc_input_select(NRF_ADC_CONFIG_INPUT_2);
+    return !nrf_gpio_pin_read(DATA_RDY_PIN);
 }
 
-static void timer_event_handler(nrf_timer_event_t event_type, void* p_context)
-{
-    unsigned adc_sample;
-    if (event_type != NRF_TIMER_EVENT_COMPARE0)
-	    return;
-    nrf_timer_cc_write(g_timer.p_reg, NRF_TIMER_CC_CHANNEL0, nrf_timer_cc_read(g_timer.p_reg, NRF_TIMER_CC_CHANNEL0) + CONV_PERIOD);
-    adc_sample = nrf_adc_result_get();
-    if (g_adc_res_i < 16)
-        g_adc_res[g_adc_res_i++] = adc_sample;
-}
-
-static void timer_initialize(void)
-{
-    ret_code_t err_code = nrf_drv_timer_init(&g_timer, NULL, timer_event_handler);
-    APP_ERROR_CHECK(err_code);
-
-    nrf_drv_timer_compare(&g_timer, NRF_TIMER_CC_CHANNEL0, CONV_PERIOD, true);
-
-    err_code = nrf_drv_ppi_init();
-    APP_ERROR_CHECK(err_code);
-
-    err_code = nrf_drv_ppi_channel_alloc(&g_ppi_channel1);
-    APP_ERROR_CHECK(err_code);
-
-    err_code = nrf_drv_ppi_channel_assign(g_ppi_channel1,
-                                          nrf_drv_timer_event_address_get(&g_timer, NRF_TIMER_EVENT_COMPARE0),
-                                          (uint32_t)nrf_adc_task_address_get(NRF_ADC_TASK_START));
-    APP_ERROR_CHECK(err_code);
-
-    err_code = nrf_drv_ppi_channel_enable(g_ppi_channel1);
-    APP_ERROR_CHECK(err_code);
-
-    nrf_drv_timer_enable(&g_timer);
-}
+uint32_t g_vcc_dmv;
 
 /**
  * @brief Function for application main entry.
  */
 int main(void)
 {
-    adc_initialize();
-    timer_initialize();
+    ads_initialize();
+    nrf_gpio_cfg_input(DATA_RDY_PIN, NRF_GPIO_PIN_NOPULL);
+    nrf_delay_us(1000);
+    BUG_ON(is_data_rdy());
+
+    uint8_t vcc_cfg[] = {ADS_CFG0_VCC_4, ADS_CFG1_TURBO, 0, 0};
+    ads_configure(vcc_cfg);
+
+    ads_start();
+
+    while (!is_data_rdy()) {}
+
+    g_vcc_dmv = ads_vcc_dmv(ads_result());
 
     while (true)
     {
@@ -107,5 +56,3 @@ int main(void)
     }
 }
 
-
-/**  @} */

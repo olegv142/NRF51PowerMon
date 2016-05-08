@@ -331,10 +331,13 @@
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\common</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\hal</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\nrf_soc_nosd</state>
+          <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\gpiote</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\timer</state>
+          <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\delay</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\config</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\ppi</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\gpiote</state>
+          <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\spi_master</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\libraries\util</state>
           <state>$PROJ_DIR$\..\..\..\..\bsp</state>
           <state>$PROJ_DIR$\..\..</state>
@@ -994,6 +997,9 @@
   <group>
     <name>Application</name>
     <file>
+      <name>$PROJ_DIR$\..\..\..\common\ads1220.c</name>
+    </file>
+    <file>
       <name>$PROJ_DIR$\..\..\main.c</name>
     </file>
   </group>
@@ -1016,6 +1022,9 @@
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\ppi\nrf_drv_ppi.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\spi_master\nrf_drv_spi.c</name>
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\timer\nrf_drv_timer.c</name>
