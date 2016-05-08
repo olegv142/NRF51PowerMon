@@ -335,7 +335,7 @@
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\timer</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\delay</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\config</state>
-          <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\ppi</state>
+          <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\rtc</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\gpiote</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\spi_master</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\libraries\util</state>
@@ -1024,10 +1024,16 @@
       <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\ppi\nrf_drv_ppi.c</name>
     </file>
     <file>
+      <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\rtc\nrf_drv_rtc.c</name>
+    </file>
+    <file>
       <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\spi_master\nrf_drv_spi.c</name>
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\timer\nrf_drv_timer.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\common\rtc.c</name>
     </file>
   </group>
   <group>
