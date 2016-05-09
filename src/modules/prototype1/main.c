@@ -21,6 +21,7 @@
 #include "clock.h"
 #include "rtc.h"
 #include "bug.h"
+#include "math.h"
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -48,9 +49,41 @@ static uint8_t  g_data_collected;
 uint32_t g_vcc_dmv;
 int32_t  g_samples[SAMPLE_COUNT];
 int      g_sample_idx;
+float    g_amplitude;
 uint32_t g_frame_sn;
 
 static uint8_t g_vcc_cfg[] = {ADS_CFG0_VCC_4, ADS_CFG1_TURBO, 0, 0};
+
+// IN0/IN1, 100uA current to REFP
+static uint8_t g_sampling_cfg[] = {1, ADS_CFG1_TURBO, 3, 5 << 5};
+
+static double g_sin[SAMPLE_COUNT];
+static double g_cos[SAMPLE_COUNT];
+
+static void init_tables(void)
+{
+#define PI 3.141592653589793
+    int i;
+    for (i = 0; i < SAMPLE_COUNT; ++i) {
+        double ph = PI*i/(SAMPLE_COUNT/2);
+        g_sin[i] = sin(ph);
+        g_cos[i] = cos(ph);
+    }
+}
+
+static float detect_amplitude(void)
+{
+    double sin_sum = 0;
+    double cos_sum = 0;
+    int i;
+    for (i = 0; i < SAMPLE_COUNT; ++i) {
+        sin_sum += g_sin[i] * g_samples[i];
+        cos_sum += g_cos[i] * g_samples[i];
+    }
+    sin_sum /= SAMPLE_COUNT;
+    cos_sum /= SAMPLE_COUNT;
+    return sqrt(sin_sum*sin_sum + cos_sum*cos_sum);
+}
 
 static void rtc_handler(nrf_drv_rtc_int_type_t int_type)
 {
@@ -74,7 +107,7 @@ static void timer_event_handler(nrf_timer_event_t event_type, void* p_context)
     case SAMPLE_CONFIGURE:
         BUG_ON(!is_data_rdy());
         g_vcc_dmv = ads_vcc_dmv(ads_result());
-        // TBD
+        ads_configure(g_sampling_cfg);
         break;
     default:
         rdy = is_data_rdy();
@@ -123,7 +156,7 @@ static void sampling_stop(void)
 
 static void process_data(void)
 {
-    // TBD
+    g_amplitude = detect_amplitude();
     ++g_frame_sn;
 }
 
@@ -132,6 +165,7 @@ static void process_data(void)
  */
 int main(void)
 {
+    init_tables();
     timer_initialize();
     ads_initialize();
     nrf_gpio_cfg_input(DATA_RDY_PIN, NRF_GPIO_PIN_NOPULL);
@@ -151,6 +185,7 @@ int main(void)
             g_data_collected = 0;
             sampling_stop();
             process_data();
+            // TBD: store / send results
         }
     }
 }
