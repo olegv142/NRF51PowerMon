@@ -51,8 +51,7 @@ int32_t ads_transfer(uint8_t cmd)
     uint8_t data[3];
     ret_code_t err_code = nrf_drv_spi_transfer(&g_spi, &cmd, 1, data, sizeof(data));
     APP_ERROR_CHECK(err_code);
-    uint32_t ext = (data[0] & 0x80) ? (0xff << 24) : 0;
-    return (int32_t)(ext | (data[0] << 16) | (data[1] << 8) | data[2]);
+    return (int32_t)((data[0] << 24) | (data[1] << 16) | (data[2] << 8)) >> 8;
 }
 
 
