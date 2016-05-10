@@ -75,7 +75,9 @@ static double g_cos[SAMPLE_COUNT];
 
 //----- Logging --------------------------------------------
 
-#define AMPL_SCALING 1. // FIXME
+// For 1:1000 transformer and 33 Om resistor we have full scale of 10kW
+// corresponding to the amplitude of 2^23. Use 0.2W units to fit in 16 bit.
+#define AMPL_SCALING (50000./(1<<23))
 
 #ifndef TEST
 // 2 weeks -> 198 x 1k pages
@@ -123,8 +125,8 @@ static float detect_amplitude(void)
         sin_sum += g_sin[i] * g_samples[i];
         cos_sum += g_cos[i] * g_samples[i];
     }
-    sin_sum /= SAMPLE_COUNT;
-    cos_sum /= SAMPLE_COUNT;
+    sin_sum /= (SAMPLE_COUNT/2);
+    cos_sum /= (SAMPLE_COUNT/2);
     return sqrt(sin_sum*sin_sum + cos_sum*cos_sum);
 }
 
@@ -202,6 +204,7 @@ static void sampling_stop(void)
     ads_shutdown();
 }
 
+// Avoid using all ones code since it matches to erased flash content
 #define MAX_AMPL (((uint16_t)~0)-1)
 
 static uint16_t scale_amplitude(float raw_ampl)
