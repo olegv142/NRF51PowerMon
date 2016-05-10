@@ -338,6 +338,7 @@
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\rtc</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\gpiote</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\spi_master</state>
+          <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\ble_flash</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\libraries\util</state>
           <state>$PROJ_DIR$\..\..\..\..\bsp</state>
           <state>$PROJ_DIR$\..\..</state>
@@ -1000,6 +1001,12 @@
       <name>$PROJ_DIR$\..\..\..\common\ads1220.c</name>
     </file>
     <file>
+      <name>$PROJ_DIR$\..\..\..\common\data_log.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\history.c</name>
+    </file>
+    <file>
       <name>$PROJ_DIR$\..\..\main.c</name>
     </file>
   </group>
@@ -1014,6 +1021,9 @@
   </group>
   <group>
     <name>nRF_Drivers</name>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\ble_flash\ble_flash.c</name>
+    </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\hal\nrf_adc.c</name>
     </file>
@@ -1031,6 +1041,9 @@
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\timer\nrf_drv_timer.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\nrf_soc_nosd\nrf_soc.c</name>
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\common\rtc.c</name>
