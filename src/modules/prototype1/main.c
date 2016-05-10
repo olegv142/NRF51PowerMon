@@ -75,7 +75,7 @@ static double g_cos[SAMPLE_COUNT];
 
 //----- Logging --------------------------------------------
 
-#define AMPL_SCALING 1e-3 // FIXME
+#define AMPL_SCALING 1. // FIXME
 
 #ifndef TEST
 // 2 weeks -> 198 x 1k pages
@@ -255,7 +255,6 @@ int main(void)
         if (g_measure_req) {
             g_measure_req = 0;
             sampling_start();
-            
         }
         if (g_data_collected) {
             g_data_collected = 0;
