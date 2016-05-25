@@ -1009,6 +1009,9 @@
     <file>
       <name>$PROJ_DIR$\..\..\main.c</name>
     </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\common\radio.c</name>
+    </file>
   </group>
   <group>
     <name>Device</name>

@@ -23,6 +23,8 @@
 #include "rtc.h"
 #include "bug.h"
 #include "math.h"
+#include "packet.h"
+#include "radio.h"
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -63,6 +65,8 @@ int      g_sample_idx;
 float    g_amplitude_raw;
 uint16_t g_amplitude;
 uint32_t g_data_sn;
+
+struct report_packet g_report;
 
 static uint8_t g_vcc_cfg[] = {ADS_CFG0_VCC_4, ADS_CFG1_TURBO, 0, 0};
 
@@ -251,6 +255,8 @@ int main(void)
 
     rtc_initialize(rtc_handler);
     rtc_cc_schedule(CC_MEASURING, MEASURING_TICKS_INTERVAL);
+   
+    radio_configure(&g_report, sizeof(g_report), 0);
 
     while (true)
     {
@@ -264,7 +270,11 @@ int main(void)
             sampling_stop();
             process_data();
             history_update();
-            // TBD: send results
+            // send results
+            g_report.power = g_amplitude;
+            g_report.vcc   = g_vcc_dmv;
+            g_report.sn    = g_data_sn;
+            send_packet();
         }
     }
 }
