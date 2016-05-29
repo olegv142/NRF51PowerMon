@@ -1,9 +1,8 @@
 #include "history.h"
 
-void data_hist_initialize(struct data_history* h, void const* buff, unsigned npages, unsigned item_samples)
+void data_hist_initialize(struct data_history* h, struct data_history_param const* param)
 {
-    data_log_initialize(&h->storage, buff, npages);
-    h->item_samples = item_samples;
+    data_log_initialize(&h->storage, &param->storage);
     h->data_idx = -1;
     h->samples_sum = 0;
     h->samples_cnt = 0;
@@ -17,7 +16,7 @@ void data_hist_put_sample(struct data_history* h, uint16_t sample, uint32_t sn)
         h->item_sn = sn;
     }
     h->samples_sum += sample;
-    if (++h->samples_cnt >= h->item_samples)
+    if (++h->samples_cnt >= h->param.item_samples)
     {
         h->item_buff.data[h->data_idx] = h->samples_sum / h->samples_cnt;
         h->samples_sum = 0;

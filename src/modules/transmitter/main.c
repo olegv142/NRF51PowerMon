@@ -23,23 +23,10 @@
 #include "rtc.h"
 #include "bug.h"
 #include "math.h"
-#include "packet.h"
 #include "radio.h"
 
 #include <stdint.h>
 #include <stdbool.h>
-
-#define TEST
-
-#ifndef TEST
-#define MEASURING_PERIOD    12
-#define SLOW_LOGGING_PERIOD 3600
-#define VCC_LOGGING_PERIOD  600
-#else
-#define MEASURING_PERIOD    1
-#define SLOW_LOGGING_PERIOD 3
-#define VCC_LOGGING_PERIOD  2
-#endif
 
 //----- Measuring --------------------------------------------
 
@@ -83,29 +70,46 @@ static double g_cos[SAMPLE_COUNT];
 // corresponding to the amplitude of 2^23. Use 0.2W units to fit in 16 bit.
 #define AMPL_SCALING (50000./(1<<23))
 
-#ifndef TEST
-// 2 weeks -> 198 x 1k pages
-#define FAST_HIST_PAGES ((3600/MEASURING_PERIOD)*24*14/HIST_PG_ITEMS+1)
-// Once per hour during 1 year -> 18 x 1k pages
-#define SLOW_HIST_PAGES ((3600/SLOW_LOGGING_PERIOD)*24*365/HIST_PG_ITEMS+1)
-// Once per 10 min during 2 weeks -> 4 x 1k pages
-#define VCC_HIST_PAGES ((3600/VCC_LOGGING_PERIOD)*24*14/HIST_PG_ITEMS+1)
-#else
-#define FAST_HIST_PAGES 2
-#define SLOW_HIST_PAGES 2
-#define VCC_HIST_PAGES  2
-#endif
+#pragma data_alignment=DATA_PAGE_SZ
+static const struct data_page g_hist_pages[DATA_PAGES];
 
-#pragma data_alignment=DATA_LOG_PG_SZ
-static const struct data_log_pg g_hist_fast_pages[FAST_HIST_PAGES];
+// Used pages bitmap
+static uint8_t g_page_bmap[DATA_PG_BITMAP_SZ];
 
-#pragma data_alignment=DATA_LOG_PG_SZ
-static const struct data_log_pg g_hist_slow_pages[SLOW_HIST_PAGES];
+static struct data_history g_history[dom_count];
 
-#pragma data_alignment=DATA_LOG_PG_SZ
-static const struct data_log_pg g_hist_vcc_pages[VCC_HIST_PAGES];
-
-static struct data_history g_hist_fast, g_hist_slow, g_hist_vcc;
+static struct data_history_param g_log_params[dom_count] = {
+    {
+        .storage = {
+            .buff = g_hist_pages,
+            .pmap = g_page_bmap,
+            .pfirst = 0,
+            .npages = FAST_PW_PAGES,
+            .domain = dom_fast_pw
+        },
+        .item_samples = FAST_PW_PERIOD / MEASURING_PERIOD,
+    },
+    {
+        .storage = {
+            .buff = g_hist_pages,
+            .pmap = g_page_bmap,
+            .pfirst = FAST_PW_PAGES,
+            .npages = SLOW_PW_PAGES,
+            .domain = dom_slow_pw
+        },
+        .item_samples = SLOW_PW_PERIOD / MEASURING_PERIOD,
+    },
+    {
+        .storage = {
+            .buff = g_hist_pages,
+            .pmap = g_page_bmap,
+            .pfirst = FAST_PW_PAGES + SLOW_PW_PAGES,
+            .npages = VCC_PAGES,
+            .domain = dom_vcc
+        },
+        .item_samples = VCC_PERIOD / MEASURING_PERIOD,
+    }
+};
 
 //---------------------------------------------------------
 
@@ -228,19 +232,21 @@ static void process_data(void)
     ++g_data_sn;
 }
 
-static void history_update(void)
-{
-    data_hist_put_sample(&g_hist_fast, g_amplitude, g_data_sn);
-    data_hist_put_sample(&g_hist_slow, g_amplitude, g_data_sn);
-    data_hist_put_sample(&g_hist_vcc,  g_vcc_dmv,   g_data_sn);
-}
-
 static void init_history(void)
 {
-    data_hist_initialize(&g_hist_fast, g_hist_fast_pages, FAST_HIST_PAGES, 1);
-    data_hist_initialize(&g_hist_slow, g_hist_slow_pages, SLOW_HIST_PAGES, SLOW_LOGGING_PERIOD / MEASURING_PERIOD);
-    data_hist_initialize(&g_hist_vcc,  g_hist_vcc_pages,  VCC_HIST_PAGES,  VCC_LOGGING_PERIOD / MEASURING_PERIOD);
+    int d;
+    for (d = 0; d < dom_count; ++d) {
+        data_hist_initialize(&g_history[d], &g_log_params[d]);
+    }
 }
+
+static void history_update(void)
+{
+    data_hist_put_sample(&g_history[dom_fast_pw], g_amplitude, g_data_sn);
+    data_hist_put_sample(&g_history[dom_slow_pw], g_amplitude, g_data_sn);
+    data_hist_put_sample(&g_history[dom_vcc],     g_vcc_dmv,   g_data_sn);
+}
+
 
 /**
  * @brief Function for application main entry.

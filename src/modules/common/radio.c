@@ -1,5 +1,4 @@
 #include "radio.h"
-#include "packet.h"
 #include "radio.h"
 #include "bug.h"
 #include "clock.h"

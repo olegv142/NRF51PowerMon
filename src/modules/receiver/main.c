@@ -22,7 +22,7 @@
 
 #include "nrf.h"
 #include "radio.h"
-#include "packet.h"
+#include "proto.h"
 #include "bug.h"
 #include "uart.h"
 #include "app_error.h"
