@@ -1004,7 +1004,7 @@
       <name>$PROJ_DIR$\..\..\..\common\data_log.c</name>
     </file>
     <file>
-      <name>$PROJ_DIR$\..\..\history.c</name>
+      <name>$PROJ_DIR$\..\..\..\common\history.c</name>
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\main.c</name>
