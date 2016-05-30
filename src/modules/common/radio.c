@@ -24,12 +24,12 @@ void radio_configure(void* packet, unsigned sz, unsigned ch)
     NRF_RADIO->RXADDRESSES = 0x01UL;  // Enable device address 0 to use to select which addresses to receive
 
     // Packet configuration
-    NRF_RADIO->PCNF0 = 0; // use static length
+    NRF_RADIO->PCNF0 = sz ? 0 : 8; // Use length prefix if sz = 0
     NRF_RADIO->PCNF1 = (RADIO_PCNF1_WHITEEN_Enabled  << RADIO_PCNF1_WHITEEN_Pos) |
                        (RADIO_PCNF1_ENDIAN_Little    << RADIO_PCNF1_ENDIAN_Pos)  |
                        (PACKET_BASE_ADDRESS_LENGTH   << RADIO_PCNF1_BALEN_Pos)   |
                        (sz                           << RADIO_PCNF1_STATLEN_Pos) |
-                       (sz                           << RADIO_PCNF1_MAXLEN_Pos);
+                       ((sz ? sz : 255)              << RADIO_PCNF1_MAXLEN_Pos);
 
     // CRC Config
     NRF_RADIO->CRCCNF = (RADIO_CRCCNF_LEN_Two << RADIO_CRCCNF_LEN_Pos); // Number of checksum bits

@@ -1,16 +1,3 @@
-/* Copyright (c) 2014 Nordic Semiconductor. All Rights Reserved.
- *
- * The information contained herein is property of Nordic Semiconductor ASA.
- * Terms and conditions of usage are described in detail in NORDIC
- * SEMICONDUCTOR STANDARD SOFTWARE LICENSE AGREEMENT.
- *
- * Licensees are granted free, non-transferable use of the information. NO
- * WARRANTY of ANY KIND is provided. This heading must NOT be removed from
- * the file.
- *
- */
-
-
 #include "nrf.h"
 #include "nrf_gpio.h"
 #include "nrf_delay.h"
@@ -27,6 +14,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 
 //----- Measuring --------------------------------------------
 
@@ -52,8 +40,6 @@ int      g_sample_idx;
 float    g_amplitude_raw;
 uint16_t g_amplitude;
 uint32_t g_data_sn;
-
-struct report_packet g_report;
 
 static uint8_t g_vcc_cfg[] = {ADS_CFG0_VCC_4, ADS_CFG1_TURBO, 0, 0};
 
@@ -110,6 +96,41 @@ static struct data_history_param g_log_params[dom_count] = {
         .item_samples = VBATT_PERIOD / MEASURING_PERIOD,
     }
 };
+
+//------ System status & communications -------------------
+
+// Threshold voltages
+#define VBATT_CHARGED   41000
+#define VBATT_LOW       35000
+#define VBATT_HIBERNATE 32000
+
+uint8_t g_status;
+
+union {
+    struct packet_hdr      hdr;
+    struct report_packet   report;
+    struct data_req_packet data_req;
+    struct data_packet     data;
+} g_pkt;
+
+static inline void pkt_hdr_init(uint8_t type, uint8_t sz)
+{
+    g_pkt.hdr.sz      = sz - 1;
+    g_pkt.hdr.version = PROTOCOL_VERSION;
+    g_pkt.hdr.status  = g_status;
+    g_pkt.hdr.type    = type;
+    g_pkt.hdr.magic   = PROTOCOL_MAGIC;
+}
+
+static void send_report(void)
+{
+    pkt_hdr_init(packet_report, sizeof(struct report_packet));
+    g_pkt.report.power = g_amplitude;
+    g_pkt.report.vbatt = g_vbatt_dmv;
+    g_pkt.report.sn    = g_data_sn;
+    memcpy(&g_pkt.report.page_bitmap, g_page_bmap, sizeof(g_page_bmap));
+    send_packet();
+}
 
 //---------------------------------------------------------
 
@@ -262,7 +283,7 @@ int main(void)
     rtc_initialize(rtc_handler);
     rtc_cc_schedule(CC_MEASURING, MEASURING_TICKS_INTERVAL);
 
-    radio_configure(&g_report, sizeof(g_report), 0);
+    radio_configure(&g_pkt, 0, PROTOCOL_CHANNEL);
 
     while (true)
     {
@@ -276,11 +297,7 @@ int main(void)
             sampling_stop();
             process_data();
             history_update();
-            // send results
-            g_report.power = g_amplitude;
-            g_report.vbatt = g_vbatt_dmv;
-            g_report.sn    = g_data_sn;
-            send_packet();
+            send_report();
         }
     }
 }

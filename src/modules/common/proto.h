@@ -2,13 +2,15 @@
 
 #include <stdint.h>
 
-#define PROTOCOL_MAGIC 0 // FIXME!
+#define PROTOCOL_VERSION 1
+#define PROTOCOL_MAGIC   0 // FIXME!
+#define PROTOCOL_CHANNEL 0
 
 // System status flags
-#define STATUS_CONNECTED 1     // connection mode
-#define STATUS_CHARGED   0x80  // Vbatt >= 4.1V, charging stopped
-#define STATUS_LOW_BATT  0x100 // Vbatt <= 3.5V, connection mode disabled
-#define STATUS_HIBERNATE 0x200 // Vbatt <= 3.2V, power measurement disabled, slowly monitoring battery
+#define STATUS_CONNECTED 1    // connection mode
+#define STATUS_CHARGED   0x10 // Vbatt >= 4.1V, charging stopped
+#define STATUS_LOW_BATT  0x40 // Vbatt <= 3.5V, connection mode disabled
+#define STATUS_HIBERNATE 0x80 // Vbatt <= 3.2V, power measurement disabled, slowly monitoring battery
 
 #ifndef TEST
 // Measuring period
@@ -60,7 +62,7 @@ struct data_page_hdr {
 struct data_page {
     struct data_page_hdr h;
     union {
-        uint32_t items[DATA_PAGE_ITEMS];
+        uint32_t items [DATA_PAGE_ITEMS];
         uint16_t ishort[2*DATA_PAGE_ITEMS];
         uint8_t  ibytes[4*DATA_PAGE_ITEMS];
     };
@@ -81,10 +83,11 @@ typedef enum {
 
 // Common packet header
 struct packet_hdr {
-	uint32_t magic;
+    uint8_t  sz;
 	uint8_t  version;
 	uint8_t  type;
-	uint16_t status;
+	uint8_t  status;
+	uint32_t magic;
 };
 
 // Periodic report
@@ -93,7 +96,6 @@ struct report_packet {
 	uint32_t          sn;
 	uint16_t          power;
 	uint16_t          vbatt;
-    uint8_t           measuring_period;
 	uint8_t           page_bitmap[DATA_PG_BITMAP_SZ];
 };
 
