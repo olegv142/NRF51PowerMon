@@ -68,6 +68,7 @@ void data_log_put_item(struct data_log* dl, uint32_t item, uint32_t sn)
             }
         }
         dl->next_item = 0;
+        dl->suspended = 0;
         data_log_pg_init(dl, dl->last_pg, sn);
         bmap_set_bit(dl->param->pmap, data_log_pg_index(dl, dl->last_pg));
     }

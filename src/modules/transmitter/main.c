@@ -25,23 +25,24 @@
 #define SAMPLE_COUNT 32  // Samples per main power period
 #define SAMPLING_PERIOD_US (20000/SAMPLE_COUNT) // In usec
 
-#define SAMPLE_VCC       (-3)
+#define SAMPLE_BATT      (-3)
 #define SAMPLE_CONFIGURE (-2)
 #define SAMPLE_START     (-1)
 
 static const nrf_drv_timer_t g_timer = NRF_DRV_TIMER_INSTANCE(0);
 
 static uint8_t  g_measure_req;
-static uint8_t  g_data_collected;
+static uint8_t  g_measure_done;
+static uint8_t  g_samples_collected;
 
-uint32_t g_vbatt_dmv;
+uint16_t g_vbatt_dmv;
 int32_t  g_samples[SAMPLE_COUNT];
 int      g_sample_idx;
 float    g_amplitude_raw;
 uint16_t g_amplitude;
 uint32_t g_data_sn;
 
-static uint8_t g_vcc_cfg[] = {ADS_CFG0_VCC_4, ADS_CFG1_TURBO, 0, 0};
+static uint8_t g_batt_cfg[] = {ADS_CFG0_VCC_4, ADS_CFG1_TURBO, 0, 0};
 
 // IN0/IN1, 100uA current to REFP
 static uint8_t g_sampling_cfg[] = {1, ADS_CFG1_TURBO, 3, 5 << 5};
@@ -104,6 +105,8 @@ static struct data_history_param g_log_params[dom_count] = {
 #define VBATT_LOW       35000
 #define VBATT_HIBERNATE 32000
 
+#define CHARGING_STOP_PIN 5
+
 uint8_t g_status;
 
 union {
@@ -129,7 +132,28 @@ static void send_report(void)
     g_pkt.report.vbatt = g_vbatt_dmv;
     g_pkt.report.sn    = g_data_sn;
     memcpy(&g_pkt.report.page_bitmap, g_page_bmap, sizeof(g_page_bmap));
-    send_packet();
+    transmitter_on_();
+    radio_transmit_();
+    radio_disable_();
+}
+
+static void upd_batt_status(uint16_t dmv)
+{
+    g_vbatt_dmv = dmv;
+    g_status &= ~(STATUS_CHARGED|STATUS_LOW_BATT|STATUS_HIBERNATE);
+    if (dmv >= VBATT_CHARGED) {
+        g_status |= STATUS_CHARGED;
+    } else if (dmv >= VBATT_LOW) {
+    } else if (dmv >= VBATT_HIBERNATE) {
+        g_status |= STATUS_LOW_BATT;
+    } else {
+        g_status |= STATUS_LOW_BATT|STATUS_HIBERNATE;
+    }
+    if (g_status & STATUS_CHARGED) {
+        nrf_gpio_pin_set(CHARGING_STOP_PIN);
+    } else {
+        nrf_gpio_pin_clear(CHARGING_STOP_PIN);
+    }
 }
 
 //---------------------------------------------------------
@@ -172,6 +196,13 @@ static inline int is_data_rdy(void)
     return !nrf_gpio_pin_read(DATA_RDY_PIN);
 }
 
+static inline void sampling_done(void)
+{
+    BUG_ON(g_measure_done);
+    g_measure_done = 1;
+    g_sample_idx = SAMPLE_COUNT;
+}
+
 static void timer_event_handler(nrf_timer_event_t event_type, void* p_context)
 {
     int rdy;
@@ -179,13 +210,17 @@ static void timer_event_handler(nrf_timer_event_t event_type, void* p_context)
     if (event_type != NRF_TIMER_EVENT_COMPARE0)
 	    return;
     switch (g_sample_idx) {
-    case SAMPLE_VCC:
-        ads_configure(g_vcc_cfg);
+    case SAMPLE_BATT:
+        ads_configure(g_batt_cfg);
         ads_start(); 
         break;
     case SAMPLE_CONFIGURE:
         BUG_ON(!is_data_rdy());
-        g_vbatt_dmv = ads_vcc_dmv(ads_result());
+        upd_batt_status(ads_vcc_dmv(ads_result()));
+        if (g_status & STATUS_HIBERNATE) {
+            sampling_done();
+            return;
+        }
         ads_configure(g_sampling_cfg);
         break;
     default:
@@ -201,9 +236,9 @@ static void timer_event_handler(nrf_timer_event_t event_type, void* p_context)
         BUG_ON(!is_data_rdy());
         res = ads_result();
         g_samples[g_sample_idx] = res;
-        BUG_ON(g_data_collected);
-        g_data_collected = 1;
-        g_sample_idx = SAMPLE_COUNT;
+        g_samples_collected = 1;
+        sampling_done();
+        return;
     case SAMPLE_COUNT:
         return;
     }
@@ -219,8 +254,7 @@ static void timer_initialize(void)
 
 static void sampling_start(void)
 {
-    hf_osc_start();
-    g_sample_idx = SAMPLE_VCC;
+    g_sample_idx = SAMPLE_BATT;
     nrf_drv_timer_compare(&g_timer, NRF_TIMER_CC_CHANNEL0, SAMPLING_PERIOD_US, true);
     nrf_drv_timer_enable(&g_timer);
 }
@@ -229,7 +263,6 @@ static void sampling_stop(void)
 {
     BUG_ON(g_sample_idx != SAMPLE_COUNT);
     nrf_drv_timer_disable(&g_timer);
-    hf_osc_stop();
     ads_shutdown();
 }
 
@@ -250,7 +283,6 @@ static void process_data(void)
 {
     g_amplitude_raw = detect_amplitude();
     g_amplitude = scale_amplitude(g_amplitude_raw);
-    ++g_data_sn;
 }
 
 static void init_history(void)
@@ -261,6 +293,14 @@ static void init_history(void)
     }
 }
 
+static void history_suspend(void)
+{
+    int d;
+    for (d = 0; d < dom_count; ++d) {
+        data_hist_suspend(&g_history[d]);
+    }
+}
+
 static void history_update(void)
 {
     data_hist_put_sample(&g_history[dom_fast_pw], g_amplitude, g_data_sn);
@@ -268,17 +308,25 @@ static void history_update(void)
     data_hist_put_sample(&g_history[dom_vbatt],   g_vbatt_dmv, g_data_sn);
 }
 
+// Measure Vbatt once per 5 min in hibernate mode
+#define HIBERNATE_MEASURING_PERIOD 300
+#define HIBERNATE_SKIP (HIBERNATE_MEASURING_PERIOD/MEASURING_PERIOD)
 
 /**
  * @brief Function for application main entry.
  */
 int main(void)
 {
+    int hibernate = 0;
+    int hibernate_skip = HIBERNATE_SKIP;
+
     init_tables();
     init_history();
     timer_initialize();
     ads_initialize();
     nrf_gpio_cfg_input(DATA_RDY_PIN, NRF_GPIO_PIN_NOPULL);
+    nrf_gpio_cfg_output(CHARGING_STOP_PIN);
+    nrf_gpio_pin_clear(CHARGING_STOP_PIN);
 
     rtc_initialize(rtc_handler);
     rtc_cc_schedule(CC_MEASURING, MEASURING_TICKS_INTERVAL);
@@ -290,14 +338,31 @@ int main(void)
         __WFI();
         if (g_measure_req) {
             g_measure_req = 0;
-            sampling_start();
+            ++g_data_sn;
+            if (!hibernate || !--hibernate_skip) {
+                hf_osc_start();
+                sampling_start();
+                hibernate_skip = HIBERNATE_SKIP;
+            }
         }
-        if (g_data_collected) {
-            g_data_collected = 0;
+        if (g_measure_done) {
+            g_measure_done = 0;
             sampling_stop();
-            process_data();
-            history_update();
-            send_report();
+            if (g_samples_collected) {
+                BUG_ON(g_status & STATUS_HIBERNATE);
+                g_samples_collected = 0;
+                process_data();
+                history_update();
+                send_report();
+                hibernate = 0;
+            } else {
+                BUG_ON(!(g_status & STATUS_HIBERNATE));
+                if (!hibernate) {
+                    history_suspend();
+                    hibernate = 1;
+                }
+            }
+            hf_osc_stop();
         }
     }
 }

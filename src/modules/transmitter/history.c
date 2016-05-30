@@ -1,11 +1,16 @@
 #include "history.h"
 
-void data_hist_initialize(struct data_history* h, struct data_history_param const* param)
+static inline void data_hist_reset(struct data_history* h)
 {
-    data_log_initialize(&h->storage, &param->storage);
     h->data_idx = -1;
     h->samples_sum = 0;
     h->samples_cnt = 0;
+}
+
+void data_hist_initialize(struct data_history* h, struct data_history_param const* param)
+{
+    data_log_initialize(&h->storage, &param->storage);
+    data_hist_reset(h);
 }
 
 void data_hist_put_sample(struct data_history* h, uint16_t sample, uint32_t sn)
@@ -27,4 +32,10 @@ void data_hist_put_sample(struct data_history* h, uint16_t sample, uint32_t sn)
             h->data_idx = -1;
         }
     }
+}
+
+void data_hist_suspend(struct data_history* h)
+{
+    data_log_suspend(&h->storage);
+    data_hist_reset(h);
 }

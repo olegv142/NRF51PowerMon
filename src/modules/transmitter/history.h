@@ -24,3 +24,4 @@ struct data_history {
 
 void data_hist_initialize(struct data_history* h, struct data_history_param const* param);
 void data_hist_put_sample(struct data_history* h, uint16_t sample, uint32_t sn);
+void data_hist_suspend(struct data_history* h);
