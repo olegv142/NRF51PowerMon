@@ -116,6 +116,8 @@ union {
     struct data_packet     data;
 } g_pkt;
 
+BUILD_BUG_ON(sizeof(g_pkt) > 255);
+
 static inline void pkt_hdr_init(uint8_t type, uint8_t sz)
 {
     g_pkt.hdr.sz      = sz - 1;
