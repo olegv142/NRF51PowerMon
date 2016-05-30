@@ -10,10 +10,20 @@
 BUILD_BUG_ON(sizeof(struct data_page) != DATA_PAGE_SZ);
 BUILD_BUG_ON(sizeof(union data_page_fragmented) != DATA_PAGE_SZ);
 
+static inline unsigned data_log_pg_index(struct data_log const* dl, struct data_page const* pg)
+{
+    return pg - (struct data_page const*)dl->param->buff;
+}
+
+static inline struct data_page const* data_log_pg(struct data_log const* dl, unsigned idx)
+{
+    return (struct data_page const*)dl->param->buff + idx;
+}
+
 static inline struct data_page const* data_log_pg_next(struct data_log const* dl, struct data_page const* pg)
 {
     struct data_page const* pg_next = pg + 1;
-    struct data_page const* pg_start = (struct data_page const*)dl->param->buff + dl->param->pfirst;
+    struct data_page const* pg_start = data_log_pg(dl, dl->param->pfirst);
     if (pg_next >= pg_start + dl->param->npages) {
         pg_next = pg_start;
     }
@@ -24,9 +34,9 @@ static inline void data_log_pg_init(struct data_log const* dl, struct data_page 
 {
     struct data_page_hdr h = {
         .domain = dl->param->domain,
+        .page_idx = data_log_pg_index(dl, pg),
         .unused_fragments = ~1,
-        .fragment = ~0,
-        .reserved = ~0,
+        .fragment_ = ~0,
         .sn = sn
     };
     ble_flash_page_erase((unsigned)pg / DATA_PAGE_SZ);
@@ -50,7 +60,7 @@ void data_log_put_item(struct data_log* dl, uint32_t item, uint32_t sn)
     {
         if (!dl->last_pg) {
             BUG_ON(dl->next_item);
-            dl->first_pg = dl->last_pg = (struct data_page const*)dl->param->buff + dl->param->pfirst;
+            dl->first_pg = dl->last_pg = data_log_pg(dl, dl->param->pfirst);
         } else {
             dl->last_pg = data_log_pg_next(dl, dl->last_pg);
             if (dl->last_pg == dl->first_pg) {
@@ -59,7 +69,7 @@ void data_log_put_item(struct data_log* dl, uint32_t item, uint32_t sn)
         }
         dl->next_item = 0;
         data_log_pg_init(dl, dl->last_pg, sn);
-        bmap_set_bit(dl->param->pmap, dl->last_pg - (struct data_page const*)dl->param->buff);
+        bmap_set_bit(dl->param->pmap, data_log_pg_index(dl, dl->last_pg));
     }
     ble_flash_word_write((uint32_t*)&dl->last_pg->items[dl->next_item], item);
     ++dl->next_item;

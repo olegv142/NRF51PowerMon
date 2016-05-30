@@ -46,7 +46,7 @@ static const nrf_drv_timer_t g_timer = NRF_DRV_TIMER_INSTANCE(0);
 static uint8_t  g_measure_req;
 static uint8_t  g_data_collected;
 
-uint32_t g_vcc_dmv;
+uint32_t g_vbatt_dmv;
 int32_t  g_samples[SAMPLE_COUNT];
 int      g_sample_idx;
 float    g_amplitude_raw;
@@ -104,10 +104,10 @@ static struct data_history_param g_log_params[dom_count] = {
             .buff = g_hist_pages,
             .pmap = g_page_bmap,
             .pfirst = FAST_PW_PAGES + SLOW_PW_PAGES,
-            .npages = VCC_PAGES,
-            .domain = dom_vcc
+            .npages = VBATT_PAGES,
+            .domain = dom_vbatt
         },
-        .item_samples = VCC_PERIOD / MEASURING_PERIOD,
+        .item_samples = VBATT_PERIOD / MEASURING_PERIOD,
     }
 };
 
@@ -164,7 +164,7 @@ static void timer_event_handler(nrf_timer_event_t event_type, void* p_context)
         break;
     case SAMPLE_CONFIGURE:
         BUG_ON(!is_data_rdy());
-        g_vcc_dmv = ads_vcc_dmv(ads_result());
+        g_vbatt_dmv = ads_vcc_dmv(ads_result());
         ads_configure(g_sampling_cfg);
         break;
     default:
@@ -244,7 +244,7 @@ static void history_update(void)
 {
     data_hist_put_sample(&g_history[dom_fast_pw], g_amplitude, g_data_sn);
     data_hist_put_sample(&g_history[dom_slow_pw], g_amplitude, g_data_sn);
-    data_hist_put_sample(&g_history[dom_vcc],     g_vcc_dmv,   g_data_sn);
+    data_hist_put_sample(&g_history[dom_vbatt],   g_vbatt_dmv, g_data_sn);
 }
 
 
@@ -261,7 +261,7 @@ int main(void)
 
     rtc_initialize(rtc_handler);
     rtc_cc_schedule(CC_MEASURING, MEASURING_TICKS_INTERVAL);
-   
+
     radio_configure(&g_report, sizeof(g_report), 0);
 
     while (true)
@@ -278,7 +278,7 @@ int main(void)
             history_update();
             // send results
             g_report.power = g_amplitude;
-            g_report.vcc   = g_vcc_dmv;
+            g_report.vbatt = g_vbatt_dmv;
             g_report.sn    = g_data_sn;
             send_packet();
         }

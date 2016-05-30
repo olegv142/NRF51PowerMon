@@ -67,7 +67,7 @@ static void stat_dump(void)
         uart_printf("no valid packets received" UART_EOL);
     } else {
         uart_printf("PW  = %.1f" UART_EOL, PW_SCALE * g_last_report.power);
-        uart_printf("VCC = %.4f" UART_EOL, VCC_SCALE * g_last_report.vcc);
+        uart_printf("Vbatt = %.4f" UART_EOL, VCC_SCALE * g_last_report.vbatt);
         uart_printf("%u%% good packets" UART_EOL, 100 * g_good_packets / (g_good_packets + g_bad_packets));
     }
     uart_tx_flush();
