@@ -18,6 +18,9 @@
 #include <stdbool.h>
 #include <string.h>
 
+#define TICKS_HZ RTC0_CONFIG_FREQUENCY
+#define MS_TICKS(ms) (1+(ms)*TICKS_HZ/1000)
+
 //----- Measuring --------------------------------------------
 
 #define DATA_RDY_PIN 30
@@ -26,7 +29,7 @@
 #define CC_MEASURING 0
 #define CC_RX_TOUT   1
 
-#define MEASURING_TICKS_INTERVAL (MEASURING_PERIOD*1024) // In ticks
+#define MEASURING_TICKS_INTERVAL (MEASURING_PERIOD*TICKS_HZ) // In ticks
 #define SAMPLE_COUNT 32  // Samples per main power period
 #define SAMPLING_PERIOD_US (20000/SAMPLE_COUNT) // In usec
 
@@ -133,9 +136,10 @@ static struct data_history_param g_hist_params[dom_count] = {
 
 #define CHARGING_STOP_PIN 0
 
-#define RX_ADDR_TOUT_TICKS 3
-#define RX_TOUT_TICKS 16
-#define RX_RETRY_CNT  4
+#define RX_ADDR_TOUT_TICKS MS_TICKS(1) // 1 msec
+#define RX_TOUT_TICKS      MS_TICKS(9) // 9 msec
+
+#define RX_RETRY_CNT 4
 
 uint8_t g_status;
 
