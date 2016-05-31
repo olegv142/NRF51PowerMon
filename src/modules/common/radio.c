@@ -64,6 +64,7 @@ void radio_transmit_(void)
     {
         // wait
     }
+    NRF_RADIO->EVENTS_END  = 0;
 }
 
 void radio_disable_(void)
@@ -76,6 +77,9 @@ void radio_disable_(void)
     {
         // wait
     }
+
+    NRF_RADIO->INTENCLR = ~0;
+    NVIC_DisableIRQ(RADIO_IRQn);
 }
 
 void send_packet(void)
@@ -137,4 +141,5 @@ void RADIO_IRQHandler(void)
 {
     BUG_ON(!g_receive_cb);
     g_receive_cb();
+    NRF_RADIO->EVENTS_END = 0;
 }
