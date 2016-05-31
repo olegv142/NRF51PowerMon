@@ -100,7 +100,9 @@ static void stat_dump(void)
         uart_printf("status = %#x"  UART_EOL, g_last_report.hdr.status);
         uart_printf("PW     = %.1f" UART_EOL, PW_SCALE * g_last_report.power);
         uart_printf("Vbatt  = %.4f" UART_EOL, VCC_SCALE * g_last_report.vbatt);
-        uart_printf("%u%% good packets" UART_EOL, 100 * g_good_packets / (g_good_packets + g_bad_packets));
+        uart_printf("SN     = %u"   UART_EOL, g_last_report.sn);
+        uart_printf("%u packets received (%u%% good)" UART_EOL,
+            g_good_packets + g_bad_packets, 100 * g_good_packets / (g_good_packets + g_bad_packets));
     }
     uart_tx_flush();
 }
