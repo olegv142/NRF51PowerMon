@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 #define PROTOCOL_VERSION 1
-#define PROTOCOL_MAGIC   0 // FIXME!
+#define PROTOCOL_MAGIC   0x766f7661
 #define PROTOCOL_CHANNEL 0
 
 // System status flags
