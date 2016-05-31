@@ -194,6 +194,7 @@
           <state>NRF51</state>
           <state>DEBUG</state>
           <state>DEBUG_NRF</state>
+          <state>DEBUG_NRF_USER</state>
         </option>
         <option>
           <name>CCPreprocFile</name>
@@ -329,6 +330,7 @@
           <state>$PROJ_DIR$\..\..\..\..\..\components\toolchain</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\clock</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\common</state>
+          <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\wdt</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\hal</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\nrf_soc_nosd</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\gpiote</state>
@@ -1044,6 +1046,9 @@
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\timer\nrf_drv_timer.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\wdt\nrf_drv_wdt.c</name>
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\nrf_soc_nosd\nrf_soc.c</name>

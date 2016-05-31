@@ -2,6 +2,7 @@
 #include "nrf_gpio.h"
 #include "nrf_delay.h"
 #include "nrf_drv_spi.h"
+#include "nrf_drv_wdt.h"
 #include "nrf_drv_timer.h"
 #include "nrf_drv_config.h"
 #include "ads1220.h"
@@ -45,8 +46,11 @@ union {
     uint8_t any;
 } g_evt;
 
+nrf_drv_wdt_channel_id g_wdt_channel;
+
 static inline void wait_events(void)
 {
+    nrf_drv_wdt_channel_feed(g_wdt_channel);
     __disable_interrupt();
     if (!g_evt.any)
         __WFI();
@@ -63,7 +67,7 @@ uint32_t g_data_sn;
 
 static uint8_t g_batt_cfg[] = {ADS_CFG0_VCC_4, ADS_CFG1_TURBO, 0, 0};
 
-// IN0/IN1, 100uA current to REFP
+// IN0/IN1, 100uA current to REFP connected to 15k resistor
 static uint8_t g_sampling_cfg[] = {1, ADS_CFG1_TURBO, 3, 5 << 5};
 
 // Sine/cosine tables
@@ -383,6 +387,19 @@ static void timer_event_handler(nrf_timer_event_t event_type, void* p_context)
     nrf_timer_cc_write(g_timer.p_reg, NRF_TIMER_CC_CHANNEL0, nrf_timer_cc_read(g_timer.p_reg, NRF_TIMER_CC_CHANNEL0) + SAMPLING_PERIOD_US);
 }
 
+static void wdt_event_handler(void)
+{
+}
+
+static void wdt_initialize(void)
+{
+    ret_code_t err_code = nrf_drv_wdt_init(0, wdt_event_handler);
+    APP_ERROR_CHECK(err_code);
+    err_code = nrf_drv_wdt_channel_alloc(&g_wdt_channel);
+    APP_ERROR_CHECK(err_code);
+    nrf_drv_wdt_enable();
+}
+
 static void timer_initialize(void)
 {
     ret_code_t err_code = nrf_drv_timer_init(&g_timer, NULL, timer_event_handler);
@@ -459,6 +476,7 @@ int main(void)
     int hibernate = 0;
     int hibernate_skip = HIBERNATE_SKIP;
 
+    wdt_initialize();
     init_tables();
     init_history();
     timer_initialize();
