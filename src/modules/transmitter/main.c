@@ -124,7 +124,7 @@ static struct data_history_param g_hist_params[dom_count] = {
 #define VBATT_LOW       35000
 #define VBATT_HIBERNATE 32000
 
-#define CHARGING_STOP_PIN 5
+#define CHARGING_STOP_PIN 0
 
 #define RX_TOUT_TICKS 16
 #define RX_RETRY_CNT  4
