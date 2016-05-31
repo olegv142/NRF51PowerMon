@@ -35,23 +35,23 @@ typedef enum {
     dom_count,
 } data_domain_t;
 
+#define DATA_PG_FRAGMENTS 8
 #define DATA_PAGE_SZ 1024
-#define DATA_FRAG_SZ (DATA_PAGE_SZ/8)
+#define DATA_FRAG_SZ (DATA_PAGE_SZ/DATA_PG_FRAGMENTS)
 
 #define FAST_PW_PAGES 200 // ~ 2 weeks
 #define SLOW_PW_PAGES 20  // ~ 1 year
 #define VBATT_PAGES   4   // ~ 2 weeks
 
 #define DATA_PAGES (FAST_PW_PAGES+SLOW_PW_PAGES+VBATT_PAGES)
-#define DATA_PG_BITMAP_SZ   (DATA_PAGES/8)        // 28  bytes to store bits per every page
-#define DATA_FRAG_BITMAP_SZ (DATA_PG_BITMAP_SZ*8) // 224 bytes to store bits per every fragment
+#define DATA_PG_BITMAP_SZ   (DATA_PAGES/8) // 28  bytes to store bits per every page
 
 // Data page header
 struct data_page_hdr {
 	uint8_t  domain;           // data domain 
 	uint8_t  page_idx;         // page index
 	uint8_t  unused_fragments; // bitmap of unused fragments
-	uint8_t  fragment_;        // fragment index (used only in struct data_packet)
+	uint8_t  fragment_;        // fragment bit (used only in struct data_packet)
 	uint32_t sn;               // first data item sequence number
 };
 
@@ -69,10 +69,10 @@ struct data_page {
 };
 
 // Data page split onto fragments
-union data_page_fragmented {
+typedef union data_page_fragmented {
     struct data_page data;
-    uint8_t          fragments[8][DATA_FRAG_SZ];
-};
+    uint8_t          fragment[DATA_PG_FRAGMENTS][DATA_FRAG_SZ];
+} data_page_fragmented_t;
 
 // Packet types
 typedef enum {
@@ -103,7 +103,7 @@ struct report_packet {
 struct data_req_packet {
 	struct packet_hdr hdr;
     uint32_t          cookie;
-	uint8_t           fragment_bitmap[DATA_FRAG_BITMAP_SZ];
+	uint8_t           fragment_bitmap[DATA_PAGES];
 };
 
 // Required fragments bitmap from the client
@@ -111,5 +111,5 @@ struct data_packet {
 	struct packet_hdr    hdr;
     uint32_t             cookie;
 	struct data_page_hdr pg_hdr;
-	uint8_t              data[DATA_FRAG_SZ];
+	uint8_t              fragment[DATA_FRAG_SZ];
 };

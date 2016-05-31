@@ -9,9 +9,10 @@
 #include "clock.h"
 #include "rtc.h"
 #include "bug.h"
-#include "math.h"
+#include "bmap.h"
 #include "radio.h"
 
+#include <math.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -20,8 +21,11 @@
 
 #define DATA_RDY_PIN 30
 
+// RTC CC channels
+#define CC_MEASURING 0
+#define CC_RX_TOUT   1
+
 #define MEASURING_TICKS_INTERVAL (MEASURING_PERIOD*1024) // In ticks
-#define CC_MEASURING 0   // RTC CC channel
 #define SAMPLE_COUNT 32  // Samples per main power period
 #define SAMPLING_PERIOD_US (20000/SAMPLE_COUNT) // In usec
 
@@ -31,13 +35,28 @@
 
 static const nrf_drv_timer_t g_timer = NRF_DRV_TIMER_INSTANCE(0);
 
-static uint8_t  g_measure_req;
-static uint8_t  g_measure_done;
-static uint8_t  g_samples_collected;
+// Events
+union {
+    struct {
+        uint8_t measure_req:1;
+        uint8_t measure_done:1;
+        uint8_t rx_complete:1;
+    };
+    uint8_t any;
+} g_evt;
+
+static inline void wait_events(void)
+{
+    __disable_interrupt();
+    if (!g_evt.any)
+        __WFI();
+    __enable_interrupt();
+}
 
 uint16_t g_vbatt_dmv;
 int32_t  g_samples[SAMPLE_COUNT];
 int      g_sample_idx;
+int      g_samples_collected;
 float    g_amplitude_raw;
 uint16_t g_amplitude;
 uint32_t g_data_sn;
@@ -65,7 +84,7 @@ static uint8_t g_page_bmap[DATA_PG_BITMAP_SZ];
 
 static struct data_history g_history[dom_count];
 
-static struct data_history_param g_log_params[dom_count] = {
+static struct data_history_param g_hist_params[dom_count] = {
     {
         .storage = {
             .buff = g_hist_pages,
@@ -107,6 +126,9 @@ static struct data_history_param g_log_params[dom_count] = {
 
 #define CHARGING_STOP_PIN 5
 
+#define RX_TOUT_TICKS 16
+#define RX_RETRY_CNT  4
+
 uint8_t g_status;
 
 union {
@@ -116,7 +138,12 @@ union {
     struct data_packet     data;
 } g_pkt;
 
+int g_data_req;
+struct data_req_packet g_data_req_packet;
+
 BUILD_BUG_ON(sizeof(g_pkt) > 255);
+
+//------ Communication protocol implementation ------------------------
 
 static inline void pkt_hdr_init(uint8_t type, uint8_t sz)
 {
@@ -158,7 +185,107 @@ static void upd_batt_status(uint16_t dmv)
     }
 }
 
-//---------------------------------------------------------
+static void data_req_cb(void)
+{
+    if (
+        receive_crc_ok() && 
+        g_pkt.hdr.version == PROTOCOL_VERSION &&
+        g_pkt.hdr.magic   == PROTOCOL_MAGIC   &&
+        g_pkt.hdr.type    == packet_data_req  &&
+        g_pkt.hdr.sz      == sizeof(struct data_req_packet) - 1
+    ) {
+        memcpy(&g_data_req_packet, &g_pkt.data_req, sizeof(g_data_req_packet));
+        g_data_req = 1;
+    }
+}
+
+static int receive_data_request(void)
+{
+    receiver_on_(data_req_cb);
+    receive_start();
+    rtc_cc_schedule(CC_RX_TOUT, RX_TOUT_TICKS);
+    while (!g_evt.rx_complete) {
+        wait_events();
+    }
+    g_evt.rx_complete = 0;
+    radio_disable_();
+    if (g_data_req) {
+        g_data_req = 0;
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+static int send_next_data_(void)
+{
+    int i, f;
+    for (i = 0; i < DATA_PAGES; ++i) {
+        if (g_data_req_packet.fragment_bitmap[i]) {
+            if (!bmap_get_bit(g_page_bmap, i)) {
+                // Page unused - clear corresponding bits in request
+                g_data_req_packet.fragment_bitmap[i] = 0;
+                continue;
+            }
+            data_page_fragmented_t const* pg = (data_page_fragmented_t const*)&g_hist_pages[i];
+            for (f = 0; f < DATA_PG_FRAGMENTS; ++f) {
+                unsigned fragment_bit = 1 << f;
+                if (!(g_data_req_packet.fragment_bitmap[i] & fragment_bit)) {
+                    continue;
+                }
+                if (pg->data.h.unused_fragments & fragment_bit) {
+                    // No more fragments - clear page bits in request
+                    g_data_req_packet.fragment_bitmap[i] = 0;
+                    break;
+                } else {
+                    pkt_hdr_init(packet_data, sizeof(struct data_packet));
+                    g_pkt.data.cookie = g_data_req_packet.cookie;
+                    memcpy(&g_pkt.data.pg_hdr, &pg->data.h, sizeof(pg->data.h));
+                    BUG_ON(g_pkt.data.pg_hdr.page_idx != i);
+                    g_pkt.data.pg_hdr.fragment_ = fragment_bit;
+                    memcpy(&g_pkt.data.fragment, &pg->fragment[f], DATA_FRAG_SZ);
+                    radio_transmit_();
+                    // Fragment sent - clear corresponding bit in request
+                    g_data_req_packet.fragment_bitmap[i] &= ~fragment_bit;
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+static void send_data(void)
+{
+    int i, data_req = 1;
+    g_status |= STATUS_CONNECTED;
+    while (data_req)
+    {
+        transmitter_on_();
+        for (;;) {
+            if (!send_next_data_() || g_evt.measure_req)
+                break;
+        }
+        radio_disable_();
+        if (g_evt.measure_req) {
+            break;
+        }
+        for (i = 0; i < RX_RETRY_CNT; ++i)
+        {
+            send_report();
+            data_req = receive_data_request();
+            if (data_req || g_evt.measure_req) {
+                break;
+            }
+        }
+        if (g_evt.measure_req) {
+            break;
+        }
+    }
+    g_status &= ~STATUS_CONNECTED;
+}
+
+//------ Data acquisition / processing -----------------------------------
 
 static void init_tables(void)
 {
@@ -187,10 +314,18 @@ static float detect_amplitude(void)
 
 static void rtc_handler(nrf_drv_rtc_int_type_t int_type)
 {
-    BUG_ON(int_type != CC_MEASURING);
-    BUG_ON(g_measure_req);
-    g_measure_req = 1;
-    rtc_cc_reschedule(CC_MEASURING, MEASURING_TICKS_INTERVAL);
+    switch (int_type) {
+    case CC_MEASURING:
+        g_evt.measure_req = 1;
+        rtc_cc_reschedule(CC_MEASURING, MEASURING_TICKS_INTERVAL);
+        break;
+    case CC_RX_TOUT:
+        g_evt.rx_complete = 1;
+        rtc_cc_disable(CC_RX_TOUT);
+        break;
+    default:
+        BUG();
+    }
 }
 
 static inline int is_data_rdy(void)
@@ -200,8 +335,8 @@ static inline int is_data_rdy(void)
 
 static inline void sampling_done(void)
 {
-    BUG_ON(g_measure_done);
-    g_measure_done = 1;
+    BUG_ON(g_evt.measure_done);
+    g_evt.measure_done = 1;
     g_sample_idx = SAMPLE_COUNT;
 }
 
@@ -287,11 +422,13 @@ static void process_data(void)
     g_amplitude = scale_amplitude(g_amplitude_raw);
 }
 
+//------ Data logging ----------------------------------------
+
 static void init_history(void)
 {
     int d;
     for (d = 0; d < dom_count; ++d) {
-        data_hist_initialize(&g_history[d], &g_log_params[d]);
+        data_hist_initialize(&g_history[d], &g_hist_params[d]);
     }
 }
 
@@ -337,26 +474,36 @@ int main(void)
 
     while (true)
     {
-        __WFI();
-        if (g_measure_req) {
-            g_measure_req = 0;
+        wait_events();
+        if (g_evt.measure_req) {
+            g_evt.measure_req = 0;
             ++g_data_sn;
             if (!hibernate || !--hibernate_skip) {
-                hf_osc_start();
+                if (!hf_osc_active()) {
+                    hf_osc_start();
+                }
                 sampling_start();
                 hibernate_skip = HIBERNATE_SKIP;
             }
         }
-        if (g_measure_done) {
-            g_measure_done = 0;
+        if (g_evt.measure_done) {
+            g_evt.measure_done = 0;
             sampling_stop();
             if (g_samples_collected) {
-                BUG_ON(g_status & STATUS_HIBERNATE);
                 g_samples_collected = 0;
+                BUG_ON(g_status & STATUS_HIBERNATE);
+                hibernate = 0;
                 process_data();
                 history_update();
                 send_report();
-                hibernate = 0;
+                if (!(g_status & STATUS_LOW_BATT)) {
+                    if (receive_data_request()) {
+                        send_data();
+                        if (g_evt.measure_req) {
+                            continue;
+                        }
+                    }
+                }
             } else {
                 BUG_ON(!(g_status & STATUS_HIBERNATE));
                 if (!hibernate) {
