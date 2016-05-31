@@ -17,7 +17,12 @@ void receiver_on(receiver_cb_t cb);
 // Start receiving
 void receive_start(void);
 
-static inline int receive_done(void)
+static inline int radio_address_ok(void)
+{
+    return NRF_RADIO->EVENTS_ADDRESS != 0;
+}
+
+static inline int radio_tx_end(void)
 {
     return NRF_RADIO->EVENTS_END != 0;
 }
@@ -28,7 +33,7 @@ static inline int receive_crc_ok(void)
 }
 
 //
-// low level routines, no automatic clock control
+// Low level routines, no automatic clock control
 //
 
 // Turn on transmitter

@@ -57,6 +57,7 @@ void transmitter_on_(void)
 void radio_transmit_(void)
 {
     NRF_RADIO->DATAWHITEIV = WHITEIV;
+    NRF_RADIO->EVENTS_ADDRESS = 0;
     NRF_RADIO->EVENTS_END  = 0;
     NRF_RADIO->TASKS_START = 1;
 
@@ -132,8 +133,8 @@ void receive_start(void)
     BUG_ON(!hf_osc_active());
 
     NRF_RADIO->DATAWHITEIV = WHITEIV;
+    NRF_RADIO->EVENTS_ADDRESS = 0;
     NRF_RADIO->EVENTS_END = 0;
-    // Start listening and wait for address received event
     NRF_RADIO->TASKS_START = 1;
 }
 

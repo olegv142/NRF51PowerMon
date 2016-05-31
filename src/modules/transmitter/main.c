@@ -133,6 +133,7 @@ static struct data_history_param g_hist_params[dom_count] = {
 
 #define CHARGING_STOP_PIN 0
 
+#define RX_ADDR_TOUT_TICKS 1
 #define RX_TOUT_TICKS 16
 #define RX_RETRY_CNT  4
 
@@ -145,7 +146,8 @@ union {
     struct data_packet     data;
 } g_pkt;
 
-int g_data_req;
+int g_addr_received;
+int g_data_req_received;
 struct data_req_packet g_data_req_packet;
 
 BUILD_BUG_ON(sizeof(g_pkt) > 255);
@@ -202,7 +204,7 @@ static void data_req_cb(void)
         g_pkt.hdr.sz      == sizeof(struct data_req_packet) - 1
     ) {
         memcpy(&g_data_req_packet, &g_pkt.data_req, sizeof(g_data_req_packet));
-        g_data_req = 1;
+        g_data_req_received = 1;
     }
 }
 
@@ -210,14 +212,15 @@ static int receive_data_request(void)
 {
     receiver_on_(data_req_cb);
     receive_start();
-    rtc_cc_schedule(CC_RX_TOUT, RX_TOUT_TICKS);
+    rtc_cc_schedule(CC_RX_TOUT, RX_ADDR_TOUT_TICKS);
     while (!g_evt.rx_complete) {
         wait_events();
     }
     g_evt.rx_complete = 0;
+    g_addr_received = 0;
     radio_disable_();
-    if (g_data_req) {
-        g_data_req = 0;
+    if (g_data_req_received) {
+        g_data_req_received = 0;
         return 1;
     } else {
         return 0;
@@ -327,8 +330,13 @@ static void rtc_handler(nrf_drv_rtc_int_type_t int_type)
         rtc_cc_reschedule(CC_MEASURING, MEASURING_TICKS_INTERVAL);
         break;
     case CC_RX_TOUT:
-        g_evt.rx_complete = 1;
-        rtc_cc_disable(CC_RX_TOUT);
+        if (!g_addr_received && radio_address_ok()) {
+            g_addr_received = 1;
+            rtc_cc_reschedule(CC_RX_TOUT, RX_TOUT_TICKS);            
+        } else {
+            g_evt.rx_complete = 1;
+            rtc_cc_disable(CC_RX_TOUT);
+        }
         break;
     default:
         BUG();
