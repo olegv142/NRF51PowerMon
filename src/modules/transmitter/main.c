@@ -133,7 +133,7 @@ static struct data_history_param g_hist_params[dom_count] = {
 
 #define CHARGING_STOP_PIN 0
 
-#define RX_ADDR_TOUT_TICKS 1
+#define RX_ADDR_TOUT_TICKS 3
 #define RX_TOUT_TICKS 16
 #define RX_RETRY_CNT  4
 
@@ -332,7 +332,7 @@ static void rtc_handler(nrf_drv_rtc_int_type_t int_type)
     case CC_RX_TOUT:
         if (!g_addr_received && radio_address_ok()) {
             g_addr_received = 1;
-            rtc_cc_reschedule(CC_RX_TOUT, RX_TOUT_TICKS);            
+            rtc_cc_reschedule(CC_RX_TOUT, RX_TOUT_TICKS);
         } else {
             g_evt.rx_complete = 1;
             rtc_cc_disable(CC_RX_TOUT);
