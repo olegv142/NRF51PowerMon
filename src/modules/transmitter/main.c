@@ -76,9 +76,12 @@ static double g_cos[SAMPLE_COUNT];
 
 //----- Logging --------------------------------------------
 
-// For 1:1000 transformer and 33 Om resistor we have full scale of 10kW
+// For 1:1000 transformer and 2x15 Om resistors we have full scale of 10kW
 // corresponding to the amplitude of 2^23. Use 0.2W units to fit in 16 bit.
 #define AMPL_SCALING (50000./(1<<23))
+
+// The multiplier to correct readings
+#define AMPL_CALIB 1.091
 
 #pragma data_alignment=DATA_PAGE_SZ
 static const struct data_page g_hist_pages[DATA_PAGES];
@@ -425,7 +428,7 @@ static void sampling_stop(void)
 
 static uint16_t scale_amplitude(float raw_ampl)
 {
-    int32_t a = (int32_t)(raw_ampl * AMPL_SCALING);
+    int32_t a = (int32_t)(raw_ampl * AMPL_SCALING * AMPL_CALIB);
     if (a < 0)
         return 0;
     if (a > MAX_AMPL)
