@@ -81,7 +81,7 @@ static double g_cos[SAMPLE_COUNT];
 #define AMPL_SCALING (50000./(1<<23))
 
 // The multiplier to correct readings
-#define AMPL_CALIB 1.091
+#define AMPL_CALIB 1.10
 
 #pragma data_alignment=DATA_PAGE_SZ
 static const struct data_page g_hist_pages[DATA_PAGES];
