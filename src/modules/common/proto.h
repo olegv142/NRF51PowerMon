@@ -48,11 +48,12 @@ typedef enum {
 
 // Data page header
 struct data_page_hdr {
-	uint8_t  domain;           // data domain 
-	uint8_t  page_idx;         // page index
-	uint8_t  unused_fragments; // bitmap of unused fragments
-	uint8_t  fragment_;        // fragment bit (used only in struct data_packet)
-	uint32_t sn;               // first data item sequence number
+    uint8_t  domain;           // data domain 
+    uint8_t  page_idx;         // page index
+    uint8_t  unused_fragments; // bitmap of unused fragments
+    uint8_t  fragment_;        // fragment bit (used only in struct data_packet)
+    uint32_t crc;              // checksum of the completed page
+    uint32_t sn;               // first data item sequence number
 };
 
 #define DATA_PAGE_HDR_SZ sizeof(struct data_page_hdr)
