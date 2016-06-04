@@ -1,7 +1,10 @@
 #pragma once
 
 #include "nrf_drv_rtc.h"
+#include "nrf_drv_config.h"
 #include "app_error.h"
+
+#define RTC_HZ RTC0_CONFIG_FREQUENCY
 
 extern const nrf_drv_rtc_t g_rtc;
 

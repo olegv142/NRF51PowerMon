@@ -26,6 +26,7 @@
 #include "bug.h"
 #include "uart.h"
 #include "bmap.h"
+#include "rtc.h"
 #include "app_error.h"
 
 #define PW_SCALE .2
@@ -39,10 +40,12 @@ union {
     struct data_packet     data;
 } g_pkt;
 
-struct report_packet g_last_report;
-
+unsigned g_total_packets;
 unsigned g_good_packets;
-unsigned g_bad_packets;
+
+unsigned             g_report_packets;
+struct report_packet g_last_report;
+unsigned             g_last_report_ts;
 
 int g_stat_request;
 
@@ -71,10 +74,26 @@ static inline int pkt_hdr_valid(void)
     return 1;
 }
 
-static inline void help(void)
+static inline void get_help(void)
 {
-    uart_printf(" s - print current readings and receiption stat" UART_EOL);
+    uart_printf(" s - print last report and receiption stat" UART_EOL);
+    uart_printf(" u - get transmitter uptime in seconds" UART_EOL);
     uart_printf(" ? - this help" UART_EOL);
+    uart_tx_flush();
+}
+
+static inline unsigned last_report_age(void)
+{
+    return (rtc_current() - g_last_report_ts) / RTC_HZ;
+}
+
+static void get_tx_uptime(void)
+{
+    if (!g_report_packets) {
+        uart_printf(UART_EOL);
+    } else {
+        uart_printf("%u" UART_EOL, last_report_age() + g_last_report.sn * MEASURING_PERIOD);
+    }
     uart_tx_flush();
 }
 
@@ -84,19 +103,22 @@ void uart_rx_process(void)
     case 's':
         g_stat_request = 1;
         break;
+    case 'u':
+        get_tx_uptime();
+        break;
     case '?':
-        help();
+        get_help();
         break;
     default:
-        uart_printf("valid commands are: s, ?" UART_EOL);
+        uart_printf("invalid command, send ? to get help" UART_EOL);
         uart_tx_flush();
     }
 }
 
 static void stat_dump(void)
 {
-    if (!g_good_packets) {
-        uart_printf("no valid packets received" UART_EOL);
+    if (!g_report_packets) {
+        uart_printf("no valid reports received" UART_EOL);
     } else {
         int i, pg_cnt = 0;
         for (i = 0; i < DATA_PAGES; ++i) {
@@ -108,8 +130,12 @@ static void stat_dump(void)
         uart_printf("Vbatt  = %.4f" UART_EOL, VCC_SCALE * g_last_report.vbatt);
         uart_printf("SN     = %u"   UART_EOL, g_last_report.sn);
         uart_printf("%u pages used" UART_EOL, pg_cnt);
-        uart_printf("%u packets received (%u%% good)" UART_EOL,
-            g_good_packets + g_bad_packets, 100 * g_good_packets / (g_good_packets + g_bad_packets));
+        uart_printf("%u report packets received" UART_EOL, g_report_packets);
+        uart_printf("last packet was received %u sec ago" UART_EOL, last_report_age());        
+    }
+    if (g_total_packets) {
+        uart_printf("total packets received: %u (%u%% good)" UART_EOL,
+            g_total_packets, 100 * g_good_packets / g_total_packets);
     }
     uart_tx_flush();
 }
@@ -118,12 +144,13 @@ static void on_packet_received(void)
 {
     if (receive_crc_ok() && pkt_hdr_valid()) {
         if (g_pkt.hdr.type == packet_report) {
-            g_last_report = g_pkt.report;
+            g_last_report    = g_pkt.report;
+            g_last_report_ts = rtc_current();
+            ++g_report_packets;
         }
         ++g_good_packets;
-    } else {
-        ++g_bad_packets;
     }
+    ++g_total_packets;
     receive_start();
 }
 
@@ -132,9 +159,9 @@ static void on_packet_received(void)
  */
 int main(void)
 {
-    uart_init();
- 
+    rtc_initialize(rtc_dummy_handler);
     radio_configure(&g_pkt, 0, PROTOCOL_CHANNEL);
+    uart_init();
 
     receiver_on(on_packet_received);
     receive_start();
