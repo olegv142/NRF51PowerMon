@@ -16,8 +16,7 @@ def find_port():
 def open_port(port):
 	return serial.Serial(port, timeout = controller_timeout, baudrate = controller_baudrate)
 
-def read_stat(com):
-	com.write(b's\r')
+def read_response(com):
 	prefix = com.read(6)
 	if len(prefix) == 0:
 		raise RuntimeError('failed to read response')
@@ -27,15 +26,30 @@ def read_stat(com):
 	resp = com.read(sz)
 	if len(resp) != sz:
 		raise RuntimeError('invalid response: %s' % resp)
-	return resp.replace('\r', '\n')
+	return resp
+
+def read_text_response(com):
+	return read_response(com).replace('\r', '\n')
+
+def send_text_command(com, cmd):
+	com.write(cmd + '\r')
+	return read_text_response(com)
 
 def main():
 	port = find_port()
 	if not port:
 		print 'receiver not found'
 		return -1
+
 	com = open_port(port)
-	print read_stat(com)
+	if len(sys.argv) <= 1:
+		print send_text_command(com, 's')
+		return 0
+
+	for arg in sys.argv[1:]:
+		if arg[0] != '-':
+			print send_text_command(com, arg)
+
 	return 0
 
 if __name__ == '__main__':
