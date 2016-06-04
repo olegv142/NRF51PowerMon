@@ -29,25 +29,27 @@
 #include "rtc.h"
 #include "app_error.h"
 
+#include <string.h>
+
 #define PW_SCALE .2
 #define VCC_SCALE .0001
 
 // Report packet
-union {
+static union {
     struct packet_hdr      hdr;
     struct report_packet   report;
     struct data_req_packet data_req;
     struct data_packet     data;
 } g_pkt;
 
-unsigned g_total_packets;
-unsigned g_good_packets;
+static unsigned g_total_packets;
+static unsigned g_good_packets;
 
-unsigned             g_report_packets;
-struct report_packet g_last_report;
-unsigned             g_last_report_ts;
+static unsigned             g_report_packets;
+static struct report_packet g_last_report;
+static unsigned             g_last_report_ts;
 
-int g_stat_request;
+static uint8_t g_page_bitmap[DATA_PG_BITMAP_SZ];
 
 static inline int pkt_hdr_valid(void)
 {
@@ -76,9 +78,13 @@ static inline int pkt_hdr_valid(void)
 
 static inline void get_help(void)
 {
-    uart_printf(" s - print last report and receiption stat" UART_EOL);
-    uart_printf(" u - get transmitter uptime in seconds" UART_EOL);
-    uart_printf(" ? - this help" UART_EOL);
+    uart_printf(" r  - print last report and receiption stat" UART_EOL);
+    uart_printf(" q  - query sync status (n - not synced, i - in progress, s - synced)" UART_EOL);
+    uart_printf(" s  - start syncing" UART_EOL);
+    uart_printf(" pm - get pages bitmap" UART_EOL);
+    uart_printf(" pN - get page number N (zero-based)" UART_EOL);    
+    uart_printf(" u  - get transmitter uptime in seconds" UART_EOL);
+    uart_printf(" ?  - this help" UART_EOL);
     uart_tx_flush();
 }
 
@@ -97,25 +103,14 @@ static void get_tx_uptime(void)
     uart_tx_flush();
 }
 
-void uart_rx_process(void)
+static void get_pg_bmap(void)
 {
-    switch (g_uart_rx_buff[0]) {
-    case 's':
-        g_stat_request = 1;
-        break;
-    case 'u':
-        get_tx_uptime();
-        break;
-    case '?':
-        get_help();
-        break;
-    default:
-        uart_printf("invalid command, send ? to get help" UART_EOL);
-        uart_tx_flush();
-    }
+    memcpy(g_uart_tx_buff, g_page_bitmap, sizeof(g_page_bitmap));
+    g_uart_tx_len = sizeof(g_page_bitmap);
+    uart_tx_flush_binarty();
 }
 
-static void stat_dump(void)
+static void get_stat(void)
 {
     if (!g_report_packets) {
         uart_printf("no valid reports received" UART_EOL);
@@ -138,6 +133,29 @@ static void stat_dump(void)
             g_total_packets, 100 * g_good_packets / g_total_packets);
     }
     uart_tx_flush();
+}
+
+void uart_rx_process(void)
+{
+    switch (g_uart_rx_buff[0]) {
+    case 'r':
+        get_stat();
+        break;
+    case 'u':
+        get_tx_uptime();
+        break;
+    case '?':
+        get_help();
+        break;
+    case 'p':
+        if (g_uart_rx_buff[1] == 'm') {
+            get_pg_bmap();
+            break;
+        }
+    default:
+        uart_printf("invalid command, send ? to get help" UART_EOL);
+        uart_tx_flush();
+    }
 }
 
 static void on_packet_received(void)
@@ -169,10 +187,6 @@ int main(void)
     while (true)
     {
         __WFI();
-        if (g_stat_request) {
-            g_stat_request = 0;
-            stat_dump();
-        }
     }
 }
 

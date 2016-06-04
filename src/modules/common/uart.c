@@ -9,7 +9,7 @@
 #include <stdarg.h>
 
 #define LEN_PREFIX_LEN 6
-#define LEN_PREFIX_FMT "~%04x" UART_EOL
+#define LEN_PREFIX_FMT "~%04x"
 #define TX_CHUNK_SZ 0xff
 
 uint8_t  g_uart_rx_buff[UART_RX_BUFF_SZ];
@@ -28,13 +28,23 @@ static void uart_tx_next(void)
     APP_ERROR_CHECK(err_code);
 }
 
-void uart_tx_flush(void)
+void uart_tx_flush_(char sep)
 {
     BUG_ON(g_uart_tx_len > UART_TX_BUFF_SZ);
     snprintf((char*)g_uart_tx_buff_, LEN_PREFIX_LEN, LEN_PREFIX_FMT, g_uart_tx_len);
-    g_uart_tx_buff_[LEN_PREFIX_LEN-1] = *UART_EOL;
+    g_uart_tx_buff_[LEN_PREFIX_LEN-1] = sep;
     g_uart_tx_len_ = -LEN_PREFIX_LEN;
     uart_tx_next();
+}
+
+void uart_tx_flush(void)
+{
+    uart_tx_flush_(*UART_EOL);
+}
+
+void uart_tx_flush_binarty(void)
+{
+    uart_tx_flush_('B');
 }
 
 static void uart_rx_next(void)
