@@ -25,6 +25,7 @@
 #include "proto.h"
 #include "bug.h"
 #include "uart.h"
+#include "bmap.h"
 #include "app_error.h"
 
 #define PW_SCALE .2
@@ -97,10 +98,16 @@ static void stat_dump(void)
     if (!g_good_packets) {
         uart_printf("no valid packets received" UART_EOL);
     } else {
+        int i, pg_cnt = 0;
+        for (i = 0; i < DATA_PAGES; ++i) {
+               if (bmap_get_bit(g_last_report.page_bitmap, i))
+                   ++pg_cnt;
+        }
         uart_printf("status = %#x"  UART_EOL, g_last_report.hdr.status);
         uart_printf("PW     = %.1f" UART_EOL, PW_SCALE * g_last_report.power);
         uart_printf("Vbatt  = %.4f" UART_EOL, VCC_SCALE * g_last_report.vbatt);
         uart_printf("SN     = %u"   UART_EOL, g_last_report.sn);
+        uart_printf("%u pages used" UART_EOL, pg_cnt);
         uart_printf("%u packets received (%u%% good)" UART_EOL,
             g_good_packets + g_bad_packets, 100 * g_good_packets / (g_good_packets + g_bad_packets));
     }
