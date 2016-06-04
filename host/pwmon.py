@@ -2,7 +2,7 @@ import sys, serial
 from serial.tools.list_ports import comports
 
 valid_controllers   = ['USB VID:PID=0403:6001', 'FTDIBUS\\VID_0403+PID_6001', 'USB VID:PID=10C4:EA60']
-controller_baudrate = 115200
+controller_baudrate = 460800
 controller_timeout  = 1
 controller_channels = 8
 
