@@ -54,6 +54,7 @@ static unsigned             g_last_report_ts;
 
 typedef enum {
     sync_none,
+    sync_starting,
     sync_in_progress,
     sync_done
 } sync_status_t;
@@ -63,7 +64,9 @@ static sync_status_t g_sync_status = sync_none;
 #pragma data_alignment=DATA_PAGE_SZ
 static const struct data_page g_pages[DATA_PAGES];
 
-static uint8_t g_valid_pages[DATA_PG_BITMAP_SZ];
+static uint8_t g_pages_valid[DATA_PG_BITMAP_SZ];
+static uint8_t g_fragments_required[DATA_PAGES];
+static uint8_t g_fragments_received[DATA_PAGES];
 
 static inline int pkt_hdr_valid(void)
 {
@@ -120,7 +123,8 @@ static void get_tx_uptime(void)
 static void get_sync_status(void)
 {
     static char sync_status_symbol[] = {
-        [sync_none]        = 'n', 
+        [sync_none]        = 'n',
+        [sync_starting]    = 'i',
         [sync_in_progress] = 'i',
         [sync_done]        = 's'
     };
@@ -130,8 +134,8 @@ static void get_sync_status(void)
 
 static void get_pg_bmap(void)
 {
-    memcpy(g_uart_tx_buff, g_valid_pages, sizeof(g_valid_pages));
-    g_uart_tx_len = sizeof(g_valid_pages);
+    memcpy(g_uart_tx_buff, g_pages_valid, sizeof(g_pages_valid));
+    g_uart_tx_len = sizeof(g_pages_valid);
     uart_tx_flush_binarty();
 }
 
@@ -169,9 +173,9 @@ static void get_stat(void)
 
 static void sync_start()
 {
-    //
-    // TBD
-    //
+    g_sync_status = sync_starting;
+    memset(g_fragments_required, 0, sizeof(g_fragments_required));
+    memset(g_fragments_received, 0, sizeof(g_fragments_received));
     uart_printf(UART_EOL);
     uart_tx_flush();
 }
@@ -229,7 +233,6 @@ static void on_packet_received(void)
         ++g_good_packets;
     }
     ++g_total_packets;
-    receive_start();
 }
 
 /**
@@ -241,12 +244,15 @@ int main(void)
     radio_configure(&g_pkt, 0, PROTOCOL_CHANNEL);
     uart_init();
 
-    receiver_on(on_packet_received);
+    receiver_on(0);
     receive_start();
 
     while (true)
     {
-        __WFI();
+        if (radio_tx_end()) {
+            on_packet_received();
+            receive_start();
+        }
     }
 }
 
