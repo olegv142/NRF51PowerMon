@@ -21,6 +21,7 @@
  */
 
 #include "nrf.h"
+#include "clock.h"
 #include "radio.h"
 #include "proto.h"
 #include "bug.h"
@@ -222,17 +223,82 @@ void uart_rx_process(void)
     }
 }
 
+static inline int is_syncing(void)
+{
+    return g_sync_status == sync_starting || g_sync_status == sync_in_progress;
+}
+
+static inline void require_pg_headers(void)
+{
+    int i;
+    for (i = 0; i < DATA_PAGES; ++i) {
+        if (bmap_get_bit(g_pkt.report.page_bitmap, i)) {
+            if (!(g_fragments_received[i] & 1)) {
+                g_fragments_required[i] = 1;
+            }
+        } else {
+            g_fragments_required[i] = 0;
+            g_fragments_received[i] = 0;
+            bmap_clr_bit(g_pages_valid, i);
+        }
+    }
+}
+
+static inline void pkt_hdr_init(uint8_t type, uint8_t sz)
+{
+    g_pkt.hdr.sz      = sz - 1;
+    g_pkt.hdr.version = PROTOCOL_VERSION;
+    g_pkt.hdr.status  = 0;
+    g_pkt.hdr.type    = type;
+    g_pkt.hdr.magic   = PROTOCOL_MAGIC;
+}
+
+static void send_data_request(void)
+{
+    radio_disable_();
+    pkt_hdr_init(packet_data_req, sizeof(struct data_req_packet));
+    g_pkt.data_req.cookie = 0;
+    memcpy(g_pkt.data_req.fragment_bitmap, g_fragments_required, DATA_PAGES);
+    transmitter_on_();
+    radio_transmit_();
+    radio_disable_();
+    receiver_on_(0);    
+}
+
+static void sync_report(void)
+{
+    require_pg_headers();
+    send_data_request();
+}
+
+static void sync_data(void)
+{
+}
+
 static void on_packet_received(void)
 {
-    if (receive_crc_ok() && pkt_hdr_valid()) {
-        if (g_pkt.hdr.type == packet_report) {
-            g_last_report    = g_pkt.report;
-            g_last_report_ts = rtc_current();
-            ++g_report_packets;
-        }
-        ++g_good_packets;
-    }
     ++g_total_packets;
+    if (receive_crc_ok() && pkt_hdr_valid())
+    {
+        ++g_good_packets;
+        switch (g_pkt.hdr.type) {
+        case packet_report:
+            if (!(g_pkt.hdr.status & STATUS_CONN)) {
+                g_last_report    = g_pkt.report;
+                g_last_report_ts = rtc_current();
+                ++g_report_packets;
+            }
+            if (is_syncing()) {
+                sync_report();
+            }
+            break;
+        case packet_data:
+            if (is_syncing()) {
+                sync_data();
+            }
+            break;
+        }
+    }
 }
 
 /**
@@ -244,7 +310,8 @@ int main(void)
     radio_configure(&g_pkt, 0, PROTOCOL_CHANNEL);
     uart_init();
 
-    receiver_on(0);
+    hf_osc_start();
+    receiver_on_(0);
     receive_start();
 
     while (true)

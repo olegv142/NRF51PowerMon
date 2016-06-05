@@ -40,7 +40,7 @@
 static const nrf_drv_timer_t g_timer = NRF_DRV_TIMER_INSTANCE(0);
 
 // Events
-union {
+static union {
     struct {
         uint8_t measure_req:1;
         uint8_t measure_done:1;
@@ -49,24 +49,23 @@ union {
     uint8_t any;
 } g_evt;
 
-nrf_drv_wdt_channel_id g_wdt_channel;
+static nrf_drv_wdt_channel_id g_wdt_channel;
 
 static inline void wait_events(void)
 {
-    nrf_drv_wdt_channel_feed(g_wdt_channel);
     __disable_interrupt();
     if (!g_evt.any)
         __WFI();
     __enable_interrupt();
 }
 
-uint16_t g_vbatt_dmv;
-int32_t  g_samples[SAMPLE_COUNT];
-int      g_sample_idx;
-int      g_samples_collected;
-float    g_amplitude_raw;
-uint16_t g_amplitude;
-uint32_t g_data_sn;
+static uint16_t g_vbatt_dmv;
+static int32_t  g_samples[SAMPLE_COUNT];
+static int      g_sample_idx;
+static int      g_samples_collected;
+static float    g_amplitude_raw;
+static uint16_t g_amplitude;
+static uint32_t g_data_sn;
 
 static uint8_t g_batt_cfg[] = {ADS_CFG0_VCC_4, ADS_CFG1_TURBO, 0, 0};
 
@@ -131,28 +130,30 @@ static struct data_history_param g_hist_params[dom_count] = {
 
 // Threshold voltages
 #define VBATT_CHARGED   41000
-#define VBATT_LOW       35000
-#define VBATT_HIBERNATE 32000
+#define VBATT_LOW       34000
+#define VBATT_SILENT    33000
+#define VBATT_HIBERNATE 31000
 
 #define CHARGING_STOP_PIN 0
 
-#define RX_ADDR_TOUT_TICKS MS_TICKS(1) // 1 msec
-#define RX_TOUT_TICKS      MS_TICKS(9) // 9 msec
+#define RX_ADDR_TOUT_TICKS      MS_TICKS(1) // 1 msec
+#define RX_ADDR_TOUT_TICKS_CONN MS_TICKS(4) // 4 msec
+#define RX_TOUT_TICKS           MS_TICKS(9) // 9 msec
 
 #define RX_RETRY_CNT 4
 
-uint8_t g_status;
+static uint8_t g_status;
 
-union {
+static union {
     struct packet_hdr      hdr;
     struct report_packet   report;
     struct data_req_packet data_req;
     struct data_packet     data;
 } g_pkt;
 
-int g_addr_received;
-int g_data_req_received;
-struct data_req_packet g_data_req_packet;
+static int g_addr_received;
+static int g_data_req_received;
+static struct data_req_packet g_data_req_packet;
 
 BUILD_BUG_ON(sizeof(g_pkt) > 255);
 
@@ -167,9 +168,12 @@ static inline void pkt_hdr_init(uint8_t type, uint8_t sz)
     g_pkt.hdr.magic   = PROTOCOL_MAGIC;
 }
 
-static void send_report(void)
+static void send_report(int connected)
 {
     pkt_hdr_init(packet_report, sizeof(struct report_packet));
+    if (connected) {
+        g_pkt.hdr.status |= STATUS_CONN;
+    }
     g_pkt.report.power = g_amplitude;
     g_pkt.report.vbatt = g_vbatt_dmv;
     g_pkt.report.sn    = g_data_sn;
@@ -181,21 +185,26 @@ static void send_report(void)
 
 static void upd_batt_status(uint16_t dmv)
 {
+    unsigned s = 0;
     g_vbatt_dmv = dmv;
-    g_status &= ~(STATUS_CHARGED|STATUS_LOW_BATT|STATUS_HIBERNATE);
     if (dmv >= VBATT_CHARGED) {
-        g_status |= STATUS_CHARGED;
-    } else if (dmv >= VBATT_LOW) {
-    } else if (dmv >= VBATT_HIBERNATE) {
-        g_status |= STATUS_LOW_BATT;
-    } else {
-        g_status |= STATUS_LOW_BATT|STATUS_HIBERNATE;
+        s |= STATUS_CHARGED;
     }
-    if (g_status & STATUS_CHARGED) {
+    if (dmv < VBATT_LOW) {
+        s |= STATUS_LOW_BATT;
+    }
+    if (dmv < VBATT_SILENT) {
+        s |= STATUS_SILENT;
+    }
+    if (dmv < VBATT_HIBERNATE) {
+        s |= STATUS_HIBERNATE;
+    }
+    if (s & STATUS_CHARGED) {
         nrf_gpio_pin_set(CHARGING_STOP_PIN);
     } else {
         nrf_gpio_pin_clear(CHARGING_STOP_PIN);
     }
+    g_status = s;
 }
 
 static void data_req_cb(void)
@@ -212,11 +221,11 @@ static void data_req_cb(void)
     }
 }
 
-static int receive_data_request(void)
+static int receive_data_request(unsigned tout)
 {
     receiver_on_(data_req_cb);
     receive_start();
-    rtc_cc_schedule(CC_RX_TOUT, RX_ADDR_TOUT_TICKS);
+    rtc_cc_schedule(CC_RX_TOUT, tout);
     while (!g_evt.rx_complete) {
         wait_events();
     }
@@ -267,36 +276,6 @@ static int send_next_data_(void)
         }
     }
     return 0;
-}
-
-static void send_data(void)
-{
-    int i, data_req = 1;
-    g_status |= STATUS_CONNECTED;
-    while (data_req)
-    {
-        transmitter_on_();
-        for (;;) {
-            if (!send_next_data_() || g_evt.measure_req)
-                break;
-        }
-        radio_disable_();
-        if (g_evt.measure_req) {
-            break;
-        }
-        for (i = 0; i < RX_RETRY_CNT; ++i)
-        {
-            send_report();
-            data_req = receive_data_request();
-            if (data_req || g_evt.measure_req) {
-                break;
-            }
-        }
-        if (g_evt.measure_req) {
-            break;
-        }
-    }
-    g_status &= ~STATUS_CONNECTED;
 }
 
 //------ Data acquisition / processing -----------------------------------
@@ -479,6 +458,35 @@ static void history_update(void)
     data_hist_put_sample(&g_history[dom_vbatt],   g_vbatt_dmv, g_data_sn);
 }
 
+static int connection_loop(void)
+{
+    int i, data_req = 1;
+    while (data_req)
+    {
+        transmitter_on_();
+        for (;;) {
+            if (!send_next_data_() || g_evt.any)
+                break;
+        }
+        radio_disable_();
+        if (g_evt.any) {
+            return 1;
+        }
+        for (i = 0; i < RX_RETRY_CNT; ++i)
+        {
+            send_report(1);
+            data_req = receive_data_request(RX_ADDR_TOUT_TICKS_CONN);
+            if (data_req || g_evt.any) {
+                break;
+            }
+        }
+        if (g_evt.any) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 // Measure Vbatt once per 5 min in hibernate mode
 #define HIBERNATE_MEASURING_PERIOD 300
 #define HIBERNATE_SKIP (HIBERNATE_MEASURING_PERIOD/MEASURING_PERIOD)
@@ -488,6 +496,7 @@ static void history_update(void)
  */
 int main(void)
 {
+    int connected = 0;
     int hibernate = 0;
     int hibernate_skip = HIBERNATE_SKIP;
 
@@ -507,7 +516,12 @@ int main(void)
 
     while (true)
     {
-        wait_events();
+        nrf_drv_wdt_channel_feed(g_wdt_channel);
+        if (!connected) {
+            wait_events();
+        } else {
+            connected = connection_loop();
+        }
         if (g_evt.measure_req) {
             g_evt.measure_req = 0;
             ++g_data_sn;
@@ -528,11 +542,14 @@ int main(void)
                 hibernate = 0;
                 process_data();
                 history_update();
-                send_report();
-                if (!(g_status & STATUS_LOW_BATT)) {
-                    if (receive_data_request()) {
-                        send_data();
-                        if (g_evt.measure_req) {
+                if (connected) {
+                    continue;
+                }
+                if (!(g_status & STATUS_SILENT)) {
+                    send_report(0);
+                    if (!(g_status & STATUS_LOW_BATT)) {
+                        if (receive_data_request(RX_ADDR_TOUT_TICKS)) {
+                            connected = 1;
                             continue;
                         }
                     }
@@ -542,6 +559,7 @@ int main(void)
                 if (!hibernate) {
                     history_suspend();
                     hibernate = 1;
+                    connected = 0;
                 }
             }
             hf_osc_stop();

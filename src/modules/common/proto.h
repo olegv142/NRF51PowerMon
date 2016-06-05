@@ -7,10 +7,11 @@
 #define PROTOCOL_CHANNEL 0
 
 // System status flags
-#define STATUS_CONNECTED 1    // connection mode
+#define STATUS_CONN      1    // connection mode
 #define STATUS_CHARGED   0x10 // Vbatt >= 4.1V, charging stopped
-#define STATUS_LOW_BATT  0x40 // Vbatt <= 3.5V, connection mode disabled
-#define STATUS_HIBERNATE 0x80 // Vbatt <= 3.2V, power measurement disabled, slowly monitoring battery
+#define STATUS_LOW_BATT  0x20 // Vbatt <= 3.4V, connection mode disabled
+#define STATUS_SILENT    0x40 // Vbatt <= 3.3V, reports transmitting stopped
+#define STATUS_HIBERNATE 0x80 // Vbatt <= 3.1V, power measurement disabled, slowly monitoring battery
 
 #ifndef TEST
 // Measuring period
