@@ -29,12 +29,13 @@
 #include "rtc.h"
 #include "app_error.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define PW_SCALE .2
 #define VCC_SCALE .0001
 
-// Report packet
+// Packet buffer
 static union {
     struct packet_hdr      hdr;
     struct report_packet   report;
@@ -49,7 +50,20 @@ static unsigned             g_report_packets;
 static struct report_packet g_last_report;
 static unsigned             g_last_report_ts;
 
-static uint8_t g_page_bitmap[DATA_PG_BITMAP_SZ];
+//---- Sync data -----------------------------
+
+typedef enum {
+    sync_none,
+    sync_in_progress,
+    sync_done
+} sync_status_t;
+
+static sync_status_t g_sync_status = sync_none;
+
+#pragma data_alignment=DATA_PAGE_SZ
+static const struct data_page g_pages[DATA_PAGES];
+
+static uint8_t g_valid_pages[DATA_PG_BITMAP_SZ];
 
 static inline int pkt_hdr_valid(void)
 {
@@ -103,10 +117,28 @@ static void get_tx_uptime(void)
     uart_tx_flush();
 }
 
+static void get_sync_status(void)
+{
+    static char sync_status_symbol[] = {
+        [sync_none]        = 'n', 
+        [sync_in_progress] = 'i',
+        [sync_done]        = 's'
+    };
+    uart_printf("%c" UART_EOL, sync_status_symbol[g_sync_status]);
+    uart_tx_flush();
+}
+
 static void get_pg_bmap(void)
 {
-    memcpy(g_uart_tx_buff, g_page_bitmap, sizeof(g_page_bitmap));
-    g_uart_tx_len = sizeof(g_page_bitmap);
+    memcpy(g_uart_tx_buff, g_valid_pages, sizeof(g_valid_pages));
+    g_uart_tx_len = sizeof(g_valid_pages);
+    uart_tx_flush_binarty();
+}
+
+static void get_pg(unsigned pg)
+{
+    memcpy(g_uart_tx_buff, &g_pages[pg], DATA_PAGE_SZ);
+    g_uart_tx_len = DATA_PAGE_SZ;
     uart_tx_flush_binarty();
 }
 
@@ -135,6 +167,15 @@ static void get_stat(void)
     uart_tx_flush();
 }
 
+static void sync_start()
+{
+    //
+    // TBD
+    //
+    uart_printf(UART_EOL);
+    uart_tx_flush();
+}
+
 void uart_rx_process(void)
 {
     switch (g_uart_rx_buff[0]) {
@@ -144,6 +185,12 @@ void uart_rx_process(void)
     case 'u':
         get_tx_uptime();
         break;
+    case 'q':
+        get_sync_status();
+        break;
+    case 's':
+        sync_start();
+        break;
     case '?':
         get_help();
         break;
@@ -151,6 +198,19 @@ void uart_rx_process(void)
         if (g_uart_rx_buff[1] == 'm') {
             get_pg_bmap();
             break;
+        } else {
+            unsigned pg;
+            int r = sscanf((const char*)&g_uart_rx_buff[1], "%u", &pg);
+            if (r == 1) {
+                if (pg < DATA_PAGES) {
+                    get_pg(pg);
+                    break;
+                } else {
+                    uart_printf("invalid page number" UART_EOL);
+                    uart_tx_flush();
+                    break;
+                }
+            }
         }
     default:
         uart_printf("invalid command, send ? to get help" UART_EOL);
