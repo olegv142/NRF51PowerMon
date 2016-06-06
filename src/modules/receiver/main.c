@@ -1,25 +1,3 @@
-/* Copyright (c) 2014 Nordic Semiconductor. All Rights Reserved.
- *
- * The information contained herein is property of Nordic Semiconductor ASA.
- * Terms and conditions of usage are described in detail in NORDIC
- * SEMICONDUCTOR STANDARD SOFTWARE LICENSE AGREEMENT.
- *
- * Licensees are granted free, non-transferable use of the information. NO
- * WARRANTY of ANY KIND is provided. This heading must NOT be removed from
- * the file.
- *
- */
-
-/** @file
- * @defgroup rtc_example_main main.c
- * @{
- * @ingroup rtc_example
- * @brief Real Time Counter Example Application main file.
- *
- * This file contains the source code for a sample application using the Real Time Counter (RTC).
- * 
- */
-
 #include "nrf.h"
 #include "clock.h"
 #include "radio.h"
@@ -176,25 +154,6 @@ static inline int x_is_active(void)
             g_x_status != x_failed;
 }
 
-static inline char x_status_symbol(void)
-{
-    static char x_status_symbols[] = {
-        [x_none]         = 'n',
-        [x_starting]     = 'i',
-        [x_reading_meta] = 'i',
-        [x_reading_data] = 'i',
-        [x_completed]    = 'c',
-        [x_failed]       = 'f'
-    };
-    return x_status_symbols[g_x_status];
-}
-
-static void x_get_status(void)
-{
-    uart_printf("%c" UART_EOL, x_status_symbol());
-    uart_tx_flush();
-}
-
 static void x_start()
 {
     x_set_status(x_starting);
@@ -202,17 +161,16 @@ static void x_start()
     uart_tx_flush();
 }
 
-static void x_return_buff(int b)
+static void x_get_status(void)
 {
-    g_buff[b].data.h = g_pg_headers[g_buff[b].data.h.page_idx];
-    memcpy(g_uart_tx_buff + g_uart_tx_len, &g_buff[b], DATA_PAGE_SZ);
-    g_uart_tx_len += DATA_PAGE_SZ;
+    uart_put(&g_x_status, 1);
+    uart_tx_flush_binary();
 }
 
 static void x_get_page(void)
 {
     g_last_get_pg_ts = rtc_current();
-    uart_printf("%c", x_status_symbol());
+    uart_put(&g_x_status, 1);
     if (g_x_status == x_reading_data || g_x_status == x_completed)
     {
         int b;
@@ -220,23 +178,27 @@ static void x_get_page(void)
         {
             if (g_buff_status[b] == x_buff_ready)
             {
-                x_return_buff(b);
+                unsigned pg = g_buff[b].data.h.page_idx;
+                BUG_ON(pg >= DATA_PAGES);
+                BUG_ON(g_pg_status[pg] != x_pg_has_data);
+                g_buff[b].data.h = g_pg_headers[pg];
+                uart_put(&g_buff[b], DATA_PAGE_SZ);
                 g_buff_status[b] = x_buff_unused;
                 break;
             }
         }
     }
-    uart_tx_flush_binarty();
+    uart_tx_flush_binary();
 }
 
 static inline void get_help(void)
 {
-    uart_printf(" r  - Print last report and receiption stat." UART_EOL);
-    uart_printf(" u  - Get transmitter uptime in seconds." UART_EOL);
-    uart_printf(" s  - Start data transfer." UART_EOL);
-    uart_printf(" q  - Query data transfer status (n - not started, i - in progress, c - completed, f - failed)." UART_EOL);
-    uart_printf(" p  - Get data page. Returns transfer status optionally followed by data page." UART_EOL);
-    uart_printf(" ?  - This help." UART_EOL);
+    uart_printf(" r  - print last report and reception stat" UART_EOL);
+    uart_printf(" u  - get transmitter uptime in seconds" UART_EOL);
+    uart_printf(" s  - start data transfer" UART_EOL);
+    uart_printf(" q  - query data transfer status" UART_EOL);
+    uart_printf(" qd - query data transfer status and data page if available" UART_EOL);
+    uart_printf(" ?  - this help" UART_EOL);
     uart_tx_flush();
 }
 
@@ -249,14 +211,15 @@ void uart_rx_process(void)
     case 'u':
         get_transmitter_uptime();
         break;
-    case 'q':
-        x_get_status();
-        break;
     case 's':
         x_start();
         break;
-    case 'p':
-        x_get_page();
+    case 'q':
+        if (g_uart_rx_buff[1] == 'd') {
+            x_get_page();
+        } else {
+            x_get_status();
+        }
         break;
     case '?':
         get_help();

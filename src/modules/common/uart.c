@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 
 #define LEN_PREFIX_LEN 6
 #define LEN_PREFIX_FMT "~%04x"
@@ -42,7 +43,7 @@ void uart_tx_flush(void)
     uart_tx_flush_(*UART_EOL);
 }
 
-void uart_tx_flush_binarty(void)
+void uart_tx_flush_binary(void)
 {
     uart_tx_flush_('B');
 }
@@ -107,3 +108,9 @@ void uart_printf(const char* fmt, ...)
     va_end(v);
 }
 
+void uart_put(const void* data, unsigned sz)
+{
+    BUG_ON(g_uart_tx_len + sz > UART_TX_BUFF_SZ);
+    memcpy(g_uart_tx_buff + g_uart_tx_len, data, sz);
+    g_uart_tx_len += sz;
+}
