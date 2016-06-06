@@ -22,7 +22,7 @@ static inline void ads_shutdown(void)
 
 static inline uint32_t ads_vcc_dmv(uint32_t v)
 {
-    return (81920 * (v >> 9)) >> 14;
+    return (81920 * (v >> 7)) >> 16;
 }
 
 #define ADS_CFG0_VCC_4 ((13<<4)+1)

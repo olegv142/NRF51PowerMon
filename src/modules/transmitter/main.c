@@ -37,6 +37,9 @@
 #define SAMPLE_CONFIGURE (-2)
 #define SAMPLE_START     (-1)
 
+// Avoid using all ones code since it matches to erased flash content
+#define MAX_AMPL (((uint16_t)~0)-1)
+
 static const nrf_drv_timer_t g_timer = NRF_DRV_TIMER_INSTANCE(0);
 
 // Events
@@ -337,6 +340,14 @@ static inline void sampling_done(void)
     g_sample_idx = SAMPLE_COUNT;
 }
 
+static inline uint16_t get_vcc_dmv(void)
+{
+    uint16_t dmv = ads_vcc_dmv(ads_result());
+    if (dmv > MAX_AMPL)
+        return MAX_AMPL;
+    return dmv;
+}
+
 static void timer_event_handler(nrf_timer_event_t event_type, void* p_context)
 {
     int rdy;
@@ -350,7 +361,7 @@ static void timer_event_handler(nrf_timer_event_t event_type, void* p_context)
         break;
     case SAMPLE_CONFIGURE:
         BUG_ON(!is_data_rdy());
-        upd_batt_status(ads_vcc_dmv(ads_result()));
+        upd_batt_status(get_vcc_dmv());
         if (g_batt_status & STATUS_HIBERNATE) {
             sampling_done();
             return;
@@ -412,9 +423,6 @@ static void sampling_stop(void)
     nrf_drv_timer_disable(&g_timer);
     ads_shutdown();
 }
-
-// Avoid using all ones code since it matches to erased flash content
-#define MAX_AMPL (((uint16_t)~0)-1)
 
 static uint16_t scale_amplitude(float raw_ampl)
 {
