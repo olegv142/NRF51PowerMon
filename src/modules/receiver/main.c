@@ -73,7 +73,7 @@ static union data_page_fragmented g_buff[BUFF_PAGES];
 
 static uint8_t g_fragments_required[DATA_PAGES];
 
-static unsigned g_last_get_pg_ts;
+static unsigned g_get_pg_tout_ts;
 
 //--------------------------------------------------------
 
@@ -154,8 +154,14 @@ static inline int x_is_active(void)
             g_x_status != x_failed;
 }
 
+static inline void x_upd_tout(void)
+{
+    g_get_pg_tout_ts = rtc_current() + BUFF_RD_TOUT;
+}
+
 static void x_start()
 {
+    x_upd_tout();
     x_set_status(x_starting);
     uart_printf(UART_EOL);
     uart_tx_flush();
@@ -169,7 +175,7 @@ static void x_get_status(void)
 
 static void x_get_page(void)
 {
-    g_last_get_pg_ts = rtc_current();
+    x_upd_tout();
     uart_put(&g_x_status, 1);
     if (g_x_status == x_reading_data || g_x_status == x_completed)
     {
@@ -268,10 +274,16 @@ static inline void require_pg_headers(void)
 
 static inline void x_request_meta(void)
 {
+    BUG_ON(!g_pg_pending);
+    send_data_request();
+}
+
+static inline void x_start_read_meta(void)
+{
     require_pg_headers();
     if (g_pg_pending) {
-        send_data_request();
         x_set_status(x_reading_meta);
+        x_request_meta();
     } else {
         x_set_status(x_failed);
     }
@@ -310,7 +322,7 @@ static void x_request_data(void)
         }
     } else {
         int b, has_free_buff = 0;
-        for (b = 0; b < DATA_PAGES; ++b) {
+        for (b = 0; b < BUFF_PAGES; ++b) {
             if (g_buff_status[b] == x_buff_unused) {
                 has_free_buff = 1;
                 if (!x_buff_attach(b)) {
@@ -319,7 +331,7 @@ static void x_request_data(void)
             }
         }
         if (!has_free_buff) {
-            if (g_last_get_pg_ts + BUFF_RD_TOUT < rtc_current()) {
+            if ((int)(rtc_current() - g_get_pg_tout_ts) > 0) {
                 x_set_status(x_failed);
                 return;
             }
@@ -332,14 +344,18 @@ static void x_got_report(void)
 {
     if (g_x_status == x_starting) {
         g_x_start_sn = g_pkt.report.sn;
-        x_request_meta();
+        x_start_read_meta();
         return;
     }
     if (g_pkt.report.sn < g_x_start_sn) {
         x_set_status(x_failed);
         return;
     }
-    if (g_x_status == x_reading_data) {
+    switch (g_x_status) {
+    case x_reading_meta:
+        x_request_meta();
+        return;
+    case x_reading_data:
         x_request_data();
         return;
     }
