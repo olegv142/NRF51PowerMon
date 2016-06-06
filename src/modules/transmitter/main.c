@@ -142,7 +142,7 @@ static struct data_history_param g_hist_params[dom_count] = {
 
 #define RX_RETRY_CNT 4
 
-static uint8_t g_status;
+static uint8_t g_batt_status;
 
 static union {
     struct packet_hdr      hdr;
@@ -163,16 +163,16 @@ static inline void pkt_hdr_init(uint8_t type, uint8_t sz)
 {
     g_pkt.hdr.sz      = sz - 1;
     g_pkt.hdr.version = PROTOCOL_VERSION;
-    g_pkt.hdr.status  = g_status;
+    g_pkt.hdr.status  = g_batt_status;
     g_pkt.hdr.type    = type;
     g_pkt.hdr.magic   = PROTOCOL_MAGIC;
 }
 
-static void send_report(int connected)
+static void send_report(int new_sample)
 {
     pkt_hdr_init(packet_report, sizeof(struct report_packet));
-    if (connected) {
-        g_pkt.hdr.status |= STATUS_CONN;
+    if (new_sample) {
+        g_pkt.hdr.status |= STATUS_NEW_SAMPLE;
     }
     g_pkt.report.power = g_amplitude;
     g_pkt.report.vbatt = g_vbatt_dmv;
@@ -204,7 +204,7 @@ static void upd_batt_status(uint16_t dmv)
     } else {
         nrf_gpio_pin_clear(CHARGING_STOP_PIN);
     }
-    g_status = s;
+    g_batt_status = s;
 }
 
 static void data_req_cb(void)
@@ -262,7 +262,6 @@ static int send_next_data_(void)
                     break;
                 } else {
                     pkt_hdr_init(packet_data, sizeof(struct data_packet));
-                    g_pkt.data.cookie = g_data_req_packet.cookie;
                     memcpy(&g_pkt.data.pg_hdr, &pg->data.h, sizeof(pg->data.h));
                     BUG_ON(g_pkt.data.pg_hdr.page_idx != i);
                     g_pkt.data.pg_hdr.fragment_ = fragment_bit;
@@ -352,7 +351,7 @@ static void timer_event_handler(nrf_timer_event_t event_type, void* p_context)
     case SAMPLE_CONFIGURE:
         BUG_ON(!is_data_rdy());
         upd_batt_status(ads_vcc_dmv(ads_result()));
-        if (g_status & STATUS_HIBERNATE) {
+        if (g_batt_status & STATUS_HIBERNATE) {
             sampling_done();
             return;
         }
@@ -460,9 +459,9 @@ static void history_update(void)
 
 static int connection_loop(void)
 {
-    int i, data_req = 1;
-    while (data_req)
+    for (;;)
     {
+        int i, data_req;
         transmitter_on_();
         for (;;) {
             if (!send_next_data_() || g_evt.any)
@@ -474,17 +473,16 @@ static int connection_loop(void)
         }
         for (i = 0; i < RX_RETRY_CNT; ++i)
         {
-            send_report(1);
+            send_report(0);
             data_req = receive_data_request(RX_ADDR_TOUT_TICKS_CONN);
-            if (data_req || g_evt.any) {
+            if (data_req) {
                 break;
             }
         }
-        if (g_evt.any) {
-            return 1;
+        if (!data_req || g_evt.any) {
+            return data_req;
         }
     }
-    return 0;
 }
 
 // Measure Vbatt once per 5 min in hibernate mode
@@ -496,8 +494,7 @@ static int connection_loop(void)
  */
 int main(void)
 {
-    int connected = 0;
-    int hibernate = 0;
+    int measuring = 0, connected = 0, hibernate = 0;
     int hibernate_skip = HIBERNATE_SKIP;
 
     wdt_initialize();
@@ -514,10 +511,10 @@ int main(void)
 
     radio_configure(&g_pkt, 0, PROTOCOL_CHANNEL);
 
-    while (true)
+    for (;;)
     {
         nrf_drv_wdt_channel_feed(g_wdt_channel);
-        if (!connected) {
+        if (!connected || measuring) {
             wait_events();
         } else {
             connected = connection_loop();
@@ -529,25 +526,27 @@ int main(void)
                 if (!hf_osc_active()) {
                     hf_osc_start();
                 }
+                measuring = 1;
                 sampling_start();
                 hibernate_skip = HIBERNATE_SKIP;
             }
         }
         if (g_evt.measure_done) {
             g_evt.measure_done = 0;
+            measuring = 0;
             sampling_stop();
             if (g_samples_collected) {
                 g_samples_collected = 0;
-                BUG_ON(g_status & STATUS_HIBERNATE);
+                BUG_ON(g_batt_status & STATUS_HIBERNATE);
                 hibernate = 0;
                 process_data();
                 history_update();
                 if (connected) {
                     continue;
                 }
-                if (!(g_status & STATUS_SILENT)) {
-                    send_report(0);
-                    if (!(g_status & STATUS_LOW_BATT)) {
+                if (!(g_batt_status & STATUS_SILENT)) {
+                    send_report(1);
+                    if (!(g_batt_status & STATUS_LOW_BATT)) {
                         if (receive_data_request(RX_ADDR_TOUT_TICKS)) {
                             connected = 1;
                             continue;
@@ -555,7 +554,7 @@ int main(void)
                     }
                 }
             } else {
-                BUG_ON(!(g_status & STATUS_HIBERNATE));
+                BUG_ON(!(g_batt_status & STATUS_HIBERNATE));
                 if (!hibernate) {
                     history_suspend();
                     hibernate = 1;

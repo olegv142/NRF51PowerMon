@@ -55,7 +55,6 @@ static unsigned             g_last_report_ts;
 
 typedef enum {
     sync_none,
-    sync_starting,
     sync_in_progress,
     sync_done
 } sync_status_t;
@@ -125,7 +124,6 @@ static void get_sync_status(void)
 {
     static char sync_status_symbol[] = {
         [sync_none]        = 'n',
-        [sync_starting]    = 'i',
         [sync_in_progress] = 'i',
         [sync_done]        = 's'
     };
@@ -174,7 +172,7 @@ static void get_stat(void)
 
 static void sync_start()
 {
-    g_sync_status = sync_starting;
+    g_sync_status = sync_in_progress;
     memset(g_fragments_required, 0, sizeof(g_fragments_required));
     memset(g_fragments_received, 0, sizeof(g_fragments_received));
     uart_printf(UART_EOL);
@@ -225,7 +223,7 @@ void uart_rx_process(void)
 
 static inline int is_syncing(void)
 {
-    return g_sync_status == sync_starting || g_sync_status == sync_in_progress;
+    return g_sync_status == sync_in_progress;
 }
 
 static inline void require_pg_headers(void)
@@ -257,7 +255,6 @@ static void send_data_request(void)
 {
     radio_disable_();
     pkt_hdr_init(packet_data_req, sizeof(struct data_req_packet));
-    g_pkt.data_req.cookie = 0;
     memcpy(g_pkt.data_req.fragment_bitmap, g_fragments_required, DATA_PAGES);
     transmitter_on_();
     radio_transmit_();
@@ -283,7 +280,7 @@ static void on_packet_received(void)
         ++g_good_packets;
         switch (g_pkt.hdr.type) {
         case packet_report:
-            if (!(g_pkt.hdr.status & STATUS_CONN)) {
+            if (g_pkt.hdr.status & STATUS_NEW_SAMPLE) {
                 g_last_report    = g_pkt.report;
                 g_last_report_ts = rtc_current();
                 ++g_report_packets;

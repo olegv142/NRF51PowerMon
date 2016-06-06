@@ -7,7 +7,7 @@
 #define PROTOCOL_CHANNEL 0
 
 // System status flags
-#define STATUS_CONN      1    // connection mode
+#define STATUS_NEW_SAMPLE 1   // new sample acquired
 #define STATUS_CHARGED   0x10 // Vbatt >= 4.1V, charging stopped
 #define STATUS_LOW_BATT  0x20 // Vbatt <= 3.4V, connection mode disabled
 #define STATUS_SILENT    0x40 // Vbatt <= 3.3V, reports transmitting stopped
@@ -104,14 +104,12 @@ struct report_packet {
 // Data page fragment
 struct data_req_packet {
 	struct packet_hdr hdr;
-    uint32_t          cookie;
 	uint8_t           fragment_bitmap[DATA_PAGES];
 };
 
 // Required fragments bitmap from the client
 struct data_packet {
 	struct packet_hdr    hdr;
-    uint32_t             cookie;
 	struct data_page_hdr pg_hdr;
 	uint8_t              fragment[DATA_FRAG_SZ];
 };
