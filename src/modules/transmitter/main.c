@@ -312,7 +312,7 @@ static void rtc_handler(nrf_drv_rtc_int_type_t int_type)
         rtc_cc_reschedule(CC_MEASURING, MEASURING_TICKS_INTERVAL);
         break;
     case CC_RX_TOUT:
-        if (!g_addr_received && radio_address_ok()) {
+        if (!g_data_req_received && !g_addr_received && radio_address_ok()) {
             g_addr_received = 1;
             rtc_cc_reschedule(CC_RX_TOUT, RX_TOUT_TICKS);
         } else {
