@@ -51,22 +51,58 @@ static unsigned             g_report_packets;
 static struct report_packet g_last_report;
 static unsigned             g_last_report_ts;
 
-//---- Sync data -----------------------------
+//---- data transfer context -----------------
 
 typedef enum {
-    sync_none,
-    sync_in_progress,
-    sync_done
-} sync_status_t;
+    x_none,
+    x_starting,
+    x_reading_meta,
+    x_reading_data,
+    x_completed,
+    x_failed,
+} x_status_t;
 
-static sync_status_t g_sync_status = sync_none;
+static x_status_t g_x_status = x_none;
+static uint32_t   g_x_start_sn;
 
-#pragma data_alignment=DATA_PAGE_SZ
-static const struct data_page g_pages[DATA_PAGES];
+typedef enum {
+    x_pg_unknown = 0,
+    x_pg_unused,
+    x_pg_reading_meta,
+    x_pg_has_meta,
+    x_pg_reading_data,
+    x_pg_has_data,
+    x_pg_aborted,
+} x_pg_status_t;
 
-static uint8_t g_pages_valid[DATA_PG_BITMAP_SZ];
+static x_pg_status_t        g_pg_status [DATA_PAGES];
+static struct data_page_hdr g_pg_headers[DATA_PAGES];
+static int                  g_pg_buff   [DATA_PAGES];
+static unsigned             g_pg_pending;
+static unsigned             g_pg_next;
+
+#define BUFF_PAGES 16
+#define BUFF_RD_TOUT (10*RTC_HZ) // 10 sec
+
+typedef enum {
+    x_buff_unused = 0,
+    x_buff_reading,
+    x_buff_ready
+} x_buff_status_t;
+
+static x_buff_status_t g_buff_status[BUFF_PAGES];
+static union data_page_fragmented g_buff[BUFF_PAGES];
+
 static uint8_t g_fragments_required[DATA_PAGES];
-static uint8_t g_fragments_received[DATA_PAGES];
+
+static unsigned g_last_get_pg_ts;
+
+//--------------------------------------------------------
+
+static inline void x_set_status(x_status_t sta)
+{
+    g_x_status = sta;
+}
 
 static inline int pkt_hdr_valid(void)
 {
@@ -75,15 +111,15 @@ static inline int pkt_hdr_valid(void)
     if (g_pkt.hdr.magic != PROTOCOL_MAGIC)
         return 0;
     switch (g_pkt.hdr.type) {
-	case packet_report:
+    case packet_report:
         if (g_pkt.hdr.sz != sizeof(struct report_packet) - 1)
             return 0;
         break;
-	case packet_data_req:
+    case packet_data_req:
         if (g_pkt.hdr.sz != sizeof(struct data_req_packet) - 1)
             return 0;
         break;
-	case packet_data:
+    case packet_data:
         if (g_pkt.hdr.sz != sizeof(struct data_packet) - 1)
             return 0;
         break;
@@ -93,24 +129,12 @@ static inline int pkt_hdr_valid(void)
     return 1;
 }
 
-static inline void get_help(void)
-{
-    uart_printf(" r  - print last report and receiption stat" UART_EOL);
-    uart_printf(" q  - query sync status (n - not synced, i - in progress, s - synced)" UART_EOL);
-    uart_printf(" s  - start syncing" UART_EOL);
-    uart_printf(" pm - get pages bitmap" UART_EOL);
-    uart_printf(" pN - get page number N (zero-based)" UART_EOL);    
-    uart_printf(" u  - get transmitter uptime in seconds" UART_EOL);
-    uart_printf(" ?  - this help" UART_EOL);
-    uart_tx_flush();
-}
-
 static inline unsigned last_report_age(void)
 {
     return (rtc_current() - g_last_report_ts) / RTC_HZ;
 }
 
-static void get_tx_uptime(void)
+static void get_transmitter_uptime(void)
 {
     if (!g_report_packets) {
         uart_printf(UART_EOL);
@@ -118,31 +142,6 @@ static void get_tx_uptime(void)
         uart_printf("%u" UART_EOL, last_report_age() + g_last_report.sn * MEASURING_PERIOD);
     }
     uart_tx_flush();
-}
-
-static void get_sync_status(void)
-{
-    static char sync_status_symbol[] = {
-        [sync_none]        = 'n',
-        [sync_in_progress] = 'i',
-        [sync_done]        = 's'
-    };
-    uart_printf("%c" UART_EOL, sync_status_symbol[g_sync_status]);
-    uart_tx_flush();
-}
-
-static void get_pg_bmap(void)
-{
-    memcpy(g_uart_tx_buff, g_pages_valid, sizeof(g_pages_valid));
-    g_uart_tx_len = sizeof(g_pages_valid);
-    uart_tx_flush_binarty();
-}
-
-static void get_pg(unsigned pg)
-{
-    memcpy(g_uart_tx_buff, &g_pages[pg], DATA_PAGE_SZ);
-    g_uart_tx_len = DATA_PAGE_SZ;
-    uart_tx_flush_binarty();
 }
 
 static void get_stat(void)
@@ -170,12 +169,74 @@ static void get_stat(void)
     uart_tx_flush();
 }
 
-static void sync_start()
+static inline int x_is_active(void)
 {
-    g_sync_status = sync_in_progress;
-    memset(g_fragments_required, 0, sizeof(g_fragments_required));
-    memset(g_fragments_received, 0, sizeof(g_fragments_received));
+    return  g_x_status != x_none &&
+            g_x_status != x_completed &&
+            g_x_status != x_failed;
+}
+
+static inline char x_status_symbol(void)
+{
+    static char x_status_symbols[] = {
+        [x_none]         = 'n',
+        [x_starting]     = 'i',
+        [x_reading_meta] = 'i',
+        [x_reading_data] = 'i',
+        [x_completed]    = 'c',
+        [x_failed]       = 'f'
+    };
+    return x_status_symbols[g_x_status];
+}
+
+static void x_get_status(void)
+{
+    uart_printf("%c" UART_EOL, x_status_symbol());
+    uart_tx_flush();
+}
+
+static void x_start()
+{
+    x_set_status(x_starting);
     uart_printf(UART_EOL);
+    uart_tx_flush();
+}
+
+static void x_return_buff(int b)
+{
+    g_buff[b].data.h = g_pg_headers[g_buff[b].data.h.page_idx];
+    memcpy(g_uart_tx_buff + g_uart_tx_len, &g_buff[b], DATA_PAGE_SZ);
+    g_uart_tx_len += DATA_PAGE_SZ;
+}
+
+static void x_get_page(void)
+{
+    g_last_get_pg_ts = rtc_current();
+    uart_printf("%c", x_status_symbol());
+    if (g_x_status == x_reading_data || g_x_status == x_completed)
+    {
+        int b;
+        for (b = 0; b < BUFF_PAGES; ++b)
+        {
+            if (g_buff_status[b] == x_buff_ready)
+            {
+                x_return_buff(b);
+                g_buff_status[b] = x_buff_unused;
+                break;
+            }
+        }
+    }
+    uart_tx_flush_binarty();
+}
+
+static inline void get_help(void)
+{
+    uart_printf(" r  - Print last report and receiption stat." UART_EOL);
+    uart_printf(" u  - Get transmitter uptime in seconds." UART_EOL);
+    uart_printf(" s  - Start data transfer." UART_EOL);
+    uart_printf(" q  - Query data transfer status (n - not started, i - in progress, c - completed, f - failed)." UART_EOL);
+    uart_printf(" p  - Get data page. Returns transfer status optionally followed by data page." UART_EOL);
+    uart_printf(" ?  - This help." UART_EOL);
     uart_tx_flush();
 }
 
@@ -186,59 +247,23 @@ void uart_rx_process(void)
         get_stat();
         break;
     case 'u':
-        get_tx_uptime();
+        get_transmitter_uptime();
         break;
     case 'q':
-        get_sync_status();
+        x_get_status();
         break;
     case 's':
-        sync_start();
+        x_start();
+        break;
+    case 'p':
+        x_get_page();
         break;
     case '?':
         get_help();
         break;
-    case 'p':
-        if (g_uart_rx_buff[1] == 'm') {
-            get_pg_bmap();
-            break;
-        } else {
-            unsigned pg;
-            int r = sscanf((const char*)&g_uart_rx_buff[1], "%u", &pg);
-            if (r == 1) {
-                if (pg < DATA_PAGES) {
-                    get_pg(pg);
-                    break;
-                } else {
-                    uart_printf("invalid page number" UART_EOL);
-                    uart_tx_flush();
-                    break;
-                }
-            }
-        }
     default:
         uart_printf("invalid command, send ? to get help" UART_EOL);
         uart_tx_flush();
-    }
-}
-
-static inline int is_syncing(void)
-{
-    return g_sync_status == sync_in_progress;
-}
-
-static inline void require_pg_headers(void)
-{
-    int i;
-    for (i = 0; i < DATA_PAGES; ++i) {
-        if (bmap_get_bit(g_pkt.report.page_bitmap, i)) {
-            if (!(g_fragments_received[i] & 1)) {
-                g_fragments_required[i] = 1;
-            }
-        } else {
-            g_fragments_required[i] = 0;
-            g_fragments_received[i] = 0;
-            bmap_clr_bit(g_pages_valid, i);
-        }
     }
 }
 
@@ -251,7 +276,7 @@ static inline void pkt_hdr_init(uint8_t type, uint8_t sz)
     g_pkt.hdr.magic   = PROTOCOL_MAGIC;
 }
 
-static void send_data_request(void)
+static inline void send_data_request(void)
 {
     radio_disable_();
     pkt_hdr_init(packet_data_req, sizeof(struct data_req_packet));
@@ -262,14 +287,156 @@ static void send_data_request(void)
     receiver_on_(0);    
 }
 
-static void sync_report(void)
+static inline void require_pg_headers(void)
+{
+    int i;
+    g_pg_pending = 0;
+    for (i = 0; i < DATA_PAGES; ++i) {
+        if (bmap_get_bit(g_pkt.report.page_bitmap, i)) {
+            g_fragments_required[i] = 1;
+            g_pg_status[i] = x_pg_reading_meta;
+            ++g_pg_pending;
+        } else {
+            g_fragments_required[i] = 0;
+            g_pg_status[i] = x_pg_unused;
+        }
+    }
+}
+
+static inline void x_request_meta(void)
 {
     require_pg_headers();
+    if (g_pg_pending) {
+        send_data_request();
+        x_set_status(x_reading_meta);
+    } else {
+        x_set_status(x_failed);
+    }
+}
+
+static inline void x_pg_bind_buff(int pg, int b)
+{
+    g_pg_buff[pg] = b;
+    g_fragments_required[pg] = ~g_pg_headers[pg].unused_fragments;
+    BUG_ON(!g_fragments_required[pg]);
+    ++g_pg_pending;
+    g_pg_status[pg] = x_pg_reading_data;
+    g_buff_status[b] = x_buff_reading;
+}
+
+static inline int x_buff_attach(int b)
+{
+    unsigned pg;
+    for (pg = g_pg_next; pg < DATA_PAGES; ++pg) {
+        if (g_pg_status[pg] == x_pg_has_meta) {
+            x_pg_bind_buff(pg, b);
+            g_pg_next = pg + 1;
+            return 1;
+        }
+    }
+    g_pg_next = DATA_PAGES;
+    return 0;
+}
+
+static void x_request_data(void)
+{
+    if (g_pg_next >= DATA_PAGES) {
+        if (!g_pg_pending) {
+            x_set_status(x_completed);
+            return;
+        }
+    } else {
+        int b, has_free_buff = 0;
+        for (b = 0; b < DATA_PAGES; ++b) {
+            if (g_buff_status[b] == x_buff_unused) {
+                has_free_buff = 1;
+                if (!x_buff_attach(b)) {
+                    break;
+                }
+            }
+        }
+        if (!has_free_buff) {
+            if (g_last_get_pg_ts + BUFF_RD_TOUT < rtc_current()) {
+                x_set_status(x_failed);
+                return;
+            }
+        }
+    }
     send_data_request();
 }
 
-static void sync_data(void)
+static void x_got_report(void)
 {
+    if (g_x_status == x_starting) {
+        g_x_start_sn = g_pkt.report.sn;
+        x_request_meta();
+        return;
+    }
+    if (g_pkt.report.sn < g_x_start_sn) {
+        x_set_status(x_failed);
+        return;
+    }
+    if (g_x_status == x_reading_data) {
+        x_request_data();
+        return;
+    }
+}
+
+static void x_start_reading_data(void)
+{
+    g_pg_next = 0;
+    memset(g_buff_status, 0, sizeof(g_buff_status));
+    x_set_status(x_reading_data);
+}
+
+static void x_got_data(void)
+{
+    unsigned pg = g_pkt.data.pg_hdr.page_idx;
+    unsigned f  = g_pkt.data.pg_hdr.fragment_;
+    if (pg >= DATA_PAGES || f >= DATA_PG_FRAGMENTS) {
+        x_set_status(x_failed);
+        return;
+    }
+    switch (g_x_status) {
+    case x_reading_meta:
+        if (g_pg_status[pg] == x_pg_reading_meta)
+        {
+            g_fragments_required[pg] = 0;
+            g_pg_headers[pg] = g_pkt.data.pg_hdr;
+            g_pg_status[pg] = x_pg_has_meta;
+            BUG_ON(!g_pg_pending);
+            if (!--g_pg_pending) {
+                x_start_reading_data();
+            }
+        }
+        break;
+    case x_reading_data:
+        if (g_pg_status[pg] == x_pg_reading_data)
+        {
+            int b = g_pg_buff[pg];
+            unsigned fragment_bit = 1 << f;
+            BUG_ON(g_buff_status[b] != x_buff_reading);
+            if (g_fragments_required[pg] & fragment_bit) {
+                if (g_pg_headers[pg].sn != g_pkt.data.pg_hdr.sn) {
+                    g_fragments_required[pg] = 0;
+                    BUG_ON(!g_pg_pending);
+                    --g_pg_pending;
+                    g_pg_status[pg]  = x_pg_aborted;
+                    g_buff_status[b] = x_buff_unused;
+                    return;
+                }
+                memcpy(&g_buff[b].fragment[f], &g_pkt.data.fragment, DATA_FRAG_SZ);
+                g_fragments_required[pg] &= ~fragment_bit;
+                if (!g_fragments_required[pg]) {
+                    BUG_ON(!g_pg_pending);
+                    --g_pg_pending;
+                    g_pg_status[pg]  = x_pg_has_data;
+                    g_buff_status[b] = x_buff_ready;
+                }
+            }
+        }
+        break;
+    }
 }
 
 static void on_packet_received(void)
@@ -285,13 +452,13 @@ static void on_packet_received(void)
                 g_last_report_ts = rtc_current();
                 ++g_report_packets;
             }
-            if (is_syncing()) {
-                sync_report();
+            if (x_is_active()) {
+                x_got_report();
             }
             break;
         case packet_data:
-            if (is_syncing()) {
-                sync_data();
+            if (x_is_active()) {
+                x_got_data();
             }
             break;
         }

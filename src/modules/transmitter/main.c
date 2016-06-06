@@ -264,7 +264,7 @@ static int send_next_data_(void)
                     pkt_hdr_init(packet_data, sizeof(struct data_packet));
                     memcpy(&g_pkt.data.pg_hdr, &pg->data.h, sizeof(pg->data.h));
                     BUG_ON(g_pkt.data.pg_hdr.page_idx != i);
-                    g_pkt.data.pg_hdr.fragment_ = fragment_bit;
+                    g_pkt.data.pg_hdr.fragment_ = f;
                     memcpy(&g_pkt.data.fragment, &pg->fragment[f], DATA_FRAG_SZ);
                     radio_transmit_();
                     // Fragment sent - clear corresponding bit in request
