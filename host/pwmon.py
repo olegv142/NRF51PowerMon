@@ -65,15 +65,14 @@ d_vbatt      = 2
 scale_pw    = .2
 scale_vbatt = .0001
 
+# Scales per domain
+d_scale = (scale_pw, scale_pw, scale_vbatt)
+
 # Measuring period
 measuring_period = 12
 
 # Measuring period per domain
-d_measuring_period = {
-	d_pw         : measuring_period,
-	d_pw_history : 3600, # every hour
-	d_vbatt      : 600   # every 10 minutes
-}
+d_measuring_period = (measuring_period, 3600, 600)
 
 DataPage = namedtuple('DataPage', ('domain', 'sn', 'data'))
 
@@ -88,7 +87,7 @@ page_frag_items   = page_frag_sz // page_item_sz
 page_hdr_items    = page_hdr_sz  // page_item_sz
 page_item_invalid = 0xffff
 
-def parse_page(d):
+def parse_data_page(d):
 	hdr          = struct.unpack(page_hdr_fmt, d[:page_hdr_sz])
 	items        = struct.unpack(page_item_fmt * page_items, d[page_hdr_sz:])
 	unused_frags = hdr[2]
@@ -136,9 +135,29 @@ def retrieve_data_raw(com, status_cb=None):
 			if sta == x_completed:
 				return pages
 
+def retrieve_data_pages(com, status_cb=None):
+	raw_pages = retrieve_data_raw(com, status_cb)
+	return [parse_data_page(p) for p in raw_pages]
+
+def retrieve_data(com, status_cb=None):
+	d_pages = {d_pw : [], d_pw_history : [], d_vbatt : []}
+	d_data  = {d_pw : [], d_pw_history : [], d_vbatt : []}
+	ts = get_transmitter_start_time(com)
+	pages = retrieve_data_pages(com, status_cb)
+	for p in pages:
+		d_pages[p.domain].append(p)
+	for d, pgs in d_pages.items():
+		data, scale, period = d_data[d], d_scale[d], d_measuring_period[d]
+		pgs.sort(key = lambda p: p.sn)
+		for p in pgs:
+			toff  = ts + p.sn * measuring_period
+			for i, v in enumerate(p.data):
+				data.append((toff + i * period, v * scale))
+	return d_data
+
 #----------------------------------------------------------
 
-def get_raw_pages(com):
+def get_status_cb():
 	status_text = {
 		x_starting     : 'connecting',
 		x_reading_meta : 'reading metadata',
@@ -147,15 +166,24 @@ def get_raw_pages(com):
 		x_failed       : 'failed'
 	}
 	ctx = [x_none]
-
 	def status_cb(sta):
 		if ctx[0] != sta:
 			ctx[0] = sta
 			print >> sys.stderr, status_text[sta]
 
-	pages = retrieve_data_raw(com, status_cb)
+	return status_cb
+
+def get_raw_pages(com):
+	pages = retrieve_data_raw(com, get_status_cb())
 	for pg in pages:
 		print bin2hex(pg)
+
+def save_data(com, names):
+	data = retrieve_data(com, get_status_cb())
+	for d, items in data.items():
+		with open(names[d], 'w') as f:
+			for t, v in items:
+				print >> f, t, v
 
 def main():
 	port = find_port()
@@ -168,11 +196,21 @@ def main():
 		print send_text_command(com, 'r')
 		return 0
 
-	if '--get-pages' in sys.argv[1:]:
+	args = sys.argv[1:]
+
+	if '--get-pages' in args:
 		get_raw_pages(com)
 		return 0
 
-	for arg in sys.argv[1:]:
+	if '--save-data' in args:
+		if len(args) == 4:
+			args.remove('--save-data')
+			save_data(com, args)
+		else:
+			save_data(com, ('pw.dat', 'pw_history.dat', 'vbatt.dat'))
+		return 0
+
+	for arg in args:
 		if arg[0] != '-':
 			print send_text_command(com, arg)
 
