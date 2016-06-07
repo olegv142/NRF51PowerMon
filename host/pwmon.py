@@ -1,4 +1,4 @@
-import sys, serial
+import sys, serial, time, struct
 from serial.tools.list_ports import comports
 from collections import namedtuple
 
@@ -48,9 +48,6 @@ def send_text_command(com, cmd):
 
 #------- Data reading ------------------------------------
 
-# data page size
-page_sz = 1024
-
 # Transfer status
 x_none         = 0
 x_starting     = 1
@@ -58,6 +55,58 @@ x_reading_meta = 2
 x_reading_data = 3
 x_completed    = 4
 x_failed       = 5
+
+# Data domains
+d_pw         = 0
+d_pw_history = 1
+d_vbatt      = 2
+
+# Data scaling
+scale_pw    = .2
+scale_vbatt = .0001
+
+# Measuring period
+measuring_period = 12
+
+# Measuring period per domain
+d_measuring_period = {
+	d_pw         : measuring_period,
+	d_pw_history : 3600, # every hour
+	d_vbatt      : 600   # every 10 minutes
+}
+
+DataPage = namedtuple('DataPage', ('domain', 'sn', 'data'))
+
+page_sz           = 1024
+page_frag_sz      = page_sz // 8
+page_hdr_fmt      = 'BBBBII'
+page_hdr_sz       = struct.calcsize(page_hdr_fmt)
+page_item_fmt     = 'H'
+page_item_sz      = struct.calcsize(page_item_fmt)
+page_items        = (page_sz - page_hdr_sz) // page_item_sz
+page_frag_items   = page_frag_sz // page_item_sz
+page_hdr_items    = page_hdr_sz  // page_item_sz
+page_item_invalid = 0xffff
+
+def parse_page(d):
+	hdr          = struct.unpack(page_hdr_fmt, d[:page_hdr_sz])
+	items        = struct.unpack(page_item_fmt * page_items, d[page_hdr_sz:])
+	unused_frags = hdr[2]
+	return DataPage(
+				domain = hdr[0],
+				sn     = hdr[-1],
+				data   = [
+							it for j, it in enumerate(items) if
+								not ((1 << ((page_hdr_items + j) // page_frag_items)) & unused_frags) and
+								it != page_item_invalid
+						]
+			)
+
+def get_transmitter_uptime(com):
+	return int(send_command(com, 'u'))
+
+def get_transmitter_start_time(com):
+	return int(time.time()) - get_transmitter_uptime(com)
 
 def start_transfer(com):
 	r = send_command(com, 's')
@@ -72,7 +121,7 @@ def query_data_page(com):
 		raise RuntimeError('invalid data length: %u bytes' % len(r))
 	return ord(r[0]), r[1:]
 
-def transfer_data(com, status_cb=None):
+def retrieve_data_raw(com, status_cb=None):
 	start_transfer(com)
 	pages = []
 	while True:
@@ -89,9 +138,9 @@ def transfer_data(com, status_cb=None):
 
 #----------------------------------------------------------
 
-def get_pages(com):
+def get_raw_pages(com):
 	status_text = {
-		x_starting     : 'starting',
+		x_starting     : 'connecting',
 		x_reading_meta : 'reading metadata',
 		x_reading_data : 'reading data',
 		x_completed    : 'completed',
@@ -104,7 +153,7 @@ def get_pages(com):
 			ctx[0] = sta
 			print >> sys.stderr, status_text[sta]
 
-	pages = transfer_data(com, status_cb)
+	pages = retrieve_data_raw(com, status_cb)
 	for pg in pages:
 		print bin2hex(pg)
 
@@ -120,7 +169,7 @@ def main():
 		return 0
 
 	if '--get-pages' in sys.argv[1:]:
-		get_pages(com)
+		get_raw_pages(com)
 		return 0
 
 	for arg in sys.argv[1:]:
