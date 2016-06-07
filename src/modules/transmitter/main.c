@@ -96,7 +96,7 @@ static uint8_t g_page_bmap[DATA_PG_BITMAP_SZ];
 
 static struct data_history g_history[dom_count];
 
-static struct data_history_param g_hist_params[dom_count] = {
+static const struct data_history_param g_hist_params[dom_count] = {
     {
         .storage = {
             .buff = g_hist_pages,
