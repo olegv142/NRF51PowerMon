@@ -1,7 +1,6 @@
 #include "data_log.h"
 #include "ble_flash.h"
 #include "bmap.h"
-#include "crc32.h"
 #include "bug.h"
 
 #include <stddef.h>
@@ -38,7 +37,6 @@ static inline void data_log_pg_init(struct data_log const* dl, struct data_page 
         .page_idx = data_log_pg_index(dl, pg),
         .unused_fragments = ~1,
         .fragment_ = ~0,
-        .crc = ~0,
         .sn = sn
     };
     ble_flash_page_erase((unsigned)pg / DATA_PAGE_SZ);
@@ -55,15 +53,6 @@ static inline void data_log_pg_mark_fragment_used(struct data_page const* pg, in
     BUG_ON(bmap_get_bit(&pg->h.unused_fragments, fragment));
 }
 
-static inline void data_log_pg_finalize(struct data_log const* dl, struct data_page const* pg)
-{
-    struct data_page_hdr h = pg->h;
-    BUG_ON(pg->h.unused_fragments);
-    BUG_ON(~h.crc);
-    h.crc = crc32((uint8_t const*)pg, DATA_PAGE_SZ);
-    ble_flash_block_write((uint32_t*)&pg->h, (uint32_t*)&h, sizeof(h)/sizeof(uint32_t));    
-}
-
 void data_log_put_item(struct data_log* dl, uint32_t item, uint32_t sn)
 {
     int fragment = 0;
@@ -73,7 +62,6 @@ void data_log_put_item(struct data_log* dl, uint32_t item, uint32_t sn)
             BUG_ON(dl->next_item);
             dl->first_pg = dl->last_pg = data_log_pg(dl, dl->param->pfirst);
         } else {
-            data_log_pg_finalize(dl, dl->last_pg);
             dl->last_pg = data_log_pg_next(dl, dl->last_pg);
             if (dl->last_pg == dl->first_pg) {
                 dl->first_pg = data_log_pg_next(dl, dl->first_pg);

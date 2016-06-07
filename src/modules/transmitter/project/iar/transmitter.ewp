@@ -1003,9 +1003,6 @@
       <name>$PROJ_DIR$\..\..\..\common\ads1220.c</name>
     </file>
     <file>
-      <name>$PROJ_DIR$\..\..\..\common\crc32.c</name>
-    </file>
-    <file>
       <name>$PROJ_DIR$\..\..\..\common\data_log.c</name>
     </file>
     <file>
