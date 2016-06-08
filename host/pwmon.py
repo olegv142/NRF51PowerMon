@@ -74,11 +74,11 @@ measuring_period = 12
 # Measuring period per domain
 d_measuring_period = (measuring_period, 3600, 600)
 
-DataPage = namedtuple('DataPage', ('domain', 'sn', 'data'))
+DataPage = namedtuple('DataPage', ('domain', 'page_idx', 'sn', 'data'))
 
 page_sz           = 1024
 page_frag_sz      = page_sz // 8
-page_hdr_fmt      = 'BBBBII'
+page_hdr_fmt      = 'BBBBI'
 page_hdr_sz       = struct.calcsize(page_hdr_fmt)
 page_item_fmt     = 'H'
 page_item_sz      = struct.calcsize(page_item_fmt)
@@ -92,9 +92,10 @@ def parse_data_page(d):
 	items        = struct.unpack(page_item_fmt * page_items, d[page_hdr_sz:])
 	unused_frags = hdr[2]
 	return DataPage(
-				domain = hdr[0],
-				sn     = hdr[-1],
-				data   = [
+				domain   = hdr[0],
+				page_idx = hdr[1],
+				sn       = hdr[-1],
+				data     = [
 							it for j, it in enumerate(items) if
 								not ((1 << ((page_hdr_items + j) // page_frag_items)) & unused_frags) and
 								it != page_item_invalid
@@ -178,6 +179,11 @@ def get_raw_pages(com):
 	for pg in pages:
 		print bin2hex(pg)
 
+def get_pages(com):
+	pages = retrieve_data_pages(com, get_status_cb())
+	for pg in pages:
+		print pg
+
 def save_data(com, names):
 	data = retrieve_data(com, get_status_cb())
 	for d, items in data.items():
@@ -198,8 +204,12 @@ def main():
 
 	args = sys.argv[1:]
 
-	if '--get-pages' in args:
+	if '--get-raw-pages' in args:
 		get_raw_pages(com)
+		return 0
+
+	if '--get-pages' in args:
+		get_pages(com)
 		return 0
 
 	if '--save-data' in args:
