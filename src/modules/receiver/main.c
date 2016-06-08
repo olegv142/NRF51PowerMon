@@ -343,6 +343,10 @@ static void x_request_data(void)
 static void x_got_report(void)
 {
     if (g_x_status == x_starting) {
+        if (g_pkt.report.hdr.status & STATUS_LOW_BATT) {
+            x_set_status(x_failed);
+            return;
+        }
         g_x_start_sn = g_pkt.report.sn;
         x_start_read_meta();
         return;
