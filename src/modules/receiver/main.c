@@ -8,6 +8,12 @@
 #include "rtc.h"
 #include "app_error.h"
 
+#ifdef USE_DISPLAY
+#include "display.h"
+#include "glcd_font.h"
+#include "glcd_fonts.h"
+#endif
+
 #include <stdio.h>
 #include <string.h>
 
@@ -422,6 +428,33 @@ static void x_got_data(void)
     }
 }
 
+#ifdef USE_DISPLAY
+#define BUFF_SZ 16
+static void show_new_sample(void)
+{
+    float pw = PW_SCALE * g_last_report.power;
+    float vb = VCC_SCALE * g_last_report.vbatt;
+    char pw_buff[BUFF_SZ] = {0}, vb_buff[BUFF_SZ+1] = {0};
+
+    snprintf(pw_buff, BUFF_SZ, pw < 100 ? "%.1f" : "%.0f", pw);
+    snprintf(vb_buff, BUFF_SZ, "%.4f V", vb);
+
+    displ_clear();
+    glcd_print_str(0, 0, vb_buff, &g_font_Tahoma15x16, 1);
+    glcd_print_str_r(DISP_W, 2, pw_buff, &g_font_Tahoma44x47D, 1);
+}
+#else
+static void show_new_sample(void) {}
+#endif
+
+static void on_new_sample(void)
+{
+    g_last_report    = g_pkt.report;
+    g_last_report_ts = rtc_current();
+    ++g_report_packets;
+    show_new_sample();
+}
+
 static void on_packet_received(void)
 {
     ++g_total_packets;
@@ -431,9 +464,7 @@ static void on_packet_received(void)
         switch (g_pkt.hdr.type) {
         case packet_report:
             if (g_pkt.hdr.status & STATUS_NEW_SAMPLE) {
-                g_last_report    = g_pkt.report;
-                g_last_report_ts = rtc_current();
-                ++g_report_packets;
+                on_new_sample();
             }
             if (x_is_active()) {
                 x_got_report();
@@ -456,6 +487,11 @@ int main(void)
     rtc_initialize(rtc_dummy_handler);
     radio_configure(&g_pkt, 0, PROTOCOL_CHANNEL);
     uart_init();
+
+#ifdef USE_DISPLAY
+    displ_init();
+    glcd_print_str(0, 0, "waiting data ...", &g_font_Tahoma15x16, 1);
+#endif
 
     hf_osc_start();
     receiver_on_(0);

@@ -191,6 +191,7 @@
           <name>CCDefines</name>
           <state>BSP_DEFINES_ONLY</state>
           <state>BOARD_CUSTOM</state>
+          <state>USE_DISPLAY</state>
           <state>NRF51</state>
           <state>DEBUG</state>
           <state>DEBUG_NRF</state>
@@ -335,6 +336,7 @@
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\rtc</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\config</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\delay</state>
+          <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\spi_master</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\gpiote</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\radio_config</state>
           <state>$PROJ_DIR$\..\..\..\..\..\components\libraries\util</state>
@@ -996,6 +998,15 @@
   <group>
     <name>Application</name>
     <file>
+      <name>$PROJ_DIR$\..\..\..\common\display.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\common\glcd_font.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\common\glcd_fonts.c</name>
+    </file>
+    <file>
       <name>$PROJ_DIR$\..\..\main.c</name>
     </file>
     <file>
@@ -1024,6 +1035,9 @@
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\rtc\nrf_drv_rtc.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\spi_master\nrf_drv_spi.c</name>
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\..\..\components\drivers_nrf\uart\nrf_drv_uart.c</name>
