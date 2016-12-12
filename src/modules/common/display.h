@@ -13,3 +13,5 @@
 void displ_init(void);
 void displ_clear(void);
 void displ_write(uint8_t col, uint8_t pg, uint8_t const* data, unsigned len);
+
+extern uint8_t g_displ_pg_buff[DISP_W];

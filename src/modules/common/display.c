@@ -3,6 +3,8 @@
 #include "app_error.h"
 #include "app_util_platform.h"
 
+#include <string.h>
+
 /*
  * SH1106 based OLED display driver
  */
@@ -26,6 +28,8 @@ static uint8_t s_displ_init_cmds[] = {
 	0xdb, 0x40, // vcom deselect level
 	0xaf,       // on
 };
+
+uint8_t g_displ_pg_buff[DISP_W];
 
 static inline void displ_mode_data(void)
 {
@@ -98,9 +102,9 @@ void displ_write(uint8_t col, uint8_t pg, uint8_t const* data, unsigned len)
 void displ_clear(void)
 {
 	int p; 
-	uint8_t pg_buff[DISP_W] = {0};
+	memset(g_displ_pg_buff, 0, DISP_W);
 	for (p = 0; p < DISP_H/8; ++p) {
-		displ_write(0, p, pg_buff, sizeof(pg_buff));
+		displ_write(0, p, g_displ_pg_buff, DISP_W);
 	}
 }
 

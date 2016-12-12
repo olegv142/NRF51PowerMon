@@ -7,8 +7,6 @@
 #include "display.h"
 #include "nrf_assert.h"
 
-static uint8_t s_pg_buff[DISP_W];
-
 static inline unsigned glcd_font_sym_valid(struct glcd_font const* font, char c)
 {
 	return c && (uint8_t)c >= font->code_off && (uint8_t)c < font->code_off + font->code_num;
@@ -38,9 +36,9 @@ static void glcd_draw_char(unsigned x, unsigned y, unsigned w, unsigned h, uint8
 	{
 		uint8_t const* ptr = data;
 		for (c = 0; c < w; ++c, ptr += h) {
-			s_pg_buff[c] = *ptr;
+			g_displ_pg_buff[c] = *ptr;
 		}
-		displ_write(x, y + r, s_pg_buff, w);
+		displ_write(x, y + r, g_displ_pg_buff, w);
 	}
 }
 
