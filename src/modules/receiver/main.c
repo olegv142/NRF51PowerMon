@@ -437,7 +437,7 @@ static void show_new_sample(void)
     char pw_buff[BUFF_SZ] = {0}, vb_buff[BUFF_SZ+1] = {0};
 
     snprintf(pw_buff, BUFF_SZ, pw < 100 ? "%.1f" : "%.0f", pw);
-    snprintf(vb_buff, BUFF_SZ, "%.4f V", vb);
+    snprintf(vb_buff, BUFF_SZ, "%.4f", vb);
 
     displ_clear();
     glcd_print_str(0, 0, vb_buff, &g_font_Tahoma15x16, 1);
