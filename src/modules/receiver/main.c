@@ -8,14 +8,26 @@
 #include "rtc.h"
 #include "app_error.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #ifdef USE_DISPLAY
+#include "nrf_adc.h"
+#include "nrf_delay.h"
 #include "display.h"
 #include "glcd_font.h"
 #include "glcd_fonts.h"
-#endif
 
-#include <stdio.h>
-#include <string.h>
+#define VBAT_SENSE_PIN NRF_ADC_CONFIG_INPUT_6 // P0.05
+#define VBAT_DIV_RL 12 // 1.2k
+#define VBAT_DIV_RH 33 // 3.3k
+// Convert ADC reading to VBAT in mV
+static inline float vbat_adc_to_mv(unsigned v)
+{
+    // We are using 1.2V internal ref
+    return (v * 1.2 * (VBAT_DIV_RH + VBAT_DIV_RL)) / (1024 * VBAT_DIV_RL);
+}
+#endif
 
 #define PW_SCALE .2
 #define VCC_SCALE .0001
@@ -434,7 +446,7 @@ static void show_new_sample(void)
 {
     float pw = PW_SCALE * g_last_report.power;
     float vb = VCC_SCALE * g_last_report.vbatt;
-    char pw_buff[BUFF_SZ] = {0}, vb_buff[BUFF_SZ+1] = {0};
+    char pw_buff[BUFF_SZ+1] = {0}, vb_buff[BUFF_SZ+1] = {0};
 
     snprintf(pw_buff, BUFF_SZ, pw < 100 ? "%.1f" : "%.0f", pw);
     snprintf(vb_buff, BUFF_SZ, "%.4f", vb);
@@ -479,6 +491,29 @@ static void on_packet_received(void)
     }
 }
 
+#ifdef USE_DISPLAY
+static void show_startup_screen(void)
+{
+    char vbat_buff[BUFF_SZ+1] = {0};
+    nrf_adc_config_t adc_config = {
+        .resolution = NRF_ADC_CONFIG_RES_10BIT,
+        .scaling    = NRF_ADC_CONFIG_SCALING_INPUT_FULL_SCALE,
+        .reference  = NRF_ADC_CONFIG_REF_VBG
+    };
+    nrf_adc_configure(&adc_config);
+    unsigned v = nrf_adc_convert_single(VBAT_SENSE_PIN);
+    float vbat = vbat_adc_to_mv(v);
+    glcd_print_str(0, 0, "waiting data ...", &g_font_Tahoma15x16, 1);
+    snprintf(vbat_buff, BUFF_SZ, "Vbat=%.3f", vbat);
+    glcd_print_str(0, 3, vbat_buff, &g_font_Tahoma15x16, 1);
+    if (vbat < 3.2) {
+        glcd_print_str(0, 6, "Low charge!", &g_font_Tahoma15x16, 1);    
+        nrf_delay_ms(1000);
+    }
+    nrf_delay_ms(1000);
+}
+#endif
+
 /**
  * @brief Function for application main entry.
  */
@@ -487,13 +522,13 @@ int main(void)
     rtc_initialize(rtc_dummy_handler);
     radio_configure(&g_pkt, 0, PROTOCOL_CHANNEL);
     uart_init();
+    hf_osc_start();
 
 #ifdef USE_DISPLAY
     displ_init();
-    glcd_print_str(0, 0, "waiting data ...", &g_font_Tahoma15x16, 1);
+    show_startup_screen();
 #endif
 
-    hf_osc_start();
     receiver_on_(0);
     receive_start();
 
